@@ -2,6 +2,10 @@
 # follow "turn" through the process and determien where place should end up
 # TODO : figure out how to work in the round
 #        if "round" join beginning and end of cast-on -- leave room for mobius
+
+
+#TODO :  1.  Fix place and needles  2.  Add edges correctly 
+
 import sys
 import pandas as pd
 import numpy as np
@@ -14,6 +18,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import progressbar
 import ast
+import logging
 
 # https://stitch-maps.com/patterns/display/continental-lace/
 # stitch_map -- circles with stitch icons indicating what this stitch "is"
@@ -116,30 +121,40 @@ class stitch(object):
 
 def edge_make(edges, needles, place, progression, stitches):#, edge):
   #v = edge.v
-  sbeh = []
-  sbel = []
-  skil = []
+  sbeh = []#behind
+  sbel = []#below
+  skil = []#kill
   edge_list = []
-
-  
+  # logging.debug("Things in edge_make: needles %s, place %s, progression %s, stitches %s", str(needles), str(place), str(progression), str(stitches))
+  # logging.debug("Current stitch??? %s", str(needles[place]))
+  logging.debug("On the needles: %s", str(needles))
   # follow stitches down and to the right to get final position
   for edge in edges:
     pos = place + edge.v[0]*progression
     # if we're working flat at the end of the work, and we're "h", skip.
     if (round == False):
-      if (pos >= len(needles)) or (pos < 0):
+      if (pos >= len(needles)) or (pos < -1):
+        logging.debug("Skipping cause on edge")
         continue
 
-    vi = needles[place + edge.v[0]*progression]
+    logging.debug("Finding stitch in position %s", str(place + edge.v[0]))
+    if(progression > 0):
+      vi = needles[place + 1 + edge.v[0]]
+    else:
+      vi = needles[place + edge.v[0]]#needles[place + edge.v[0]*progression]
     for i in range(edge.v[1]):
+      logging.debug("If this runs, it's currently an error.  Maybe it's for fancy stitches %s", edge.v[1])
       vi = stitches[vi].below[0]
     if edge.orient == "h":
       sbeh.append(vi)
+      edge_list.append((vi, place))
     elif edge.orient == "v":
       sbel.append(vi)
+      edge_list.append((vi, place))
 
     if edge.bk == "b":
       skil.append(vi)
+    # logging.debug("Current values of sbeh, sbel, skil, edge_list: %s, %s, %s, %s", str(sbeh), str(sbel),str(skil), str(edge_list) )
   return sbeh, sbel, skil, edge_list
 
 
@@ -175,6 +190,7 @@ file = open(fi, "r")
 contents = file.readlines()
 file.close()
 
+logging.basicConfig(filename='logfile.log', level=logging.DEBUG, force=True)
 # list of stitches
 # list of active stitches (ordered)
 # cursor position
@@ -184,16 +200,16 @@ stitches   = [] # list of all stitches
 #stitches_c = [] # list of stitch characters
 needles    = [] # list of stitches that are being held on the needles
 edges = []   # list of connections among stitches
-# place always lists the position of the "current" stitch          
-place = 0    # start at position after 0th stitch
+# place always lists the position of the "current" stitch  
+place = 0    # start at position after 0th stitch  #I don't think place currently works, sometimes I get negative? 
 count = 1
 right_side = True # start on right side of work -- cursor going right to left
 progression = 1
 
 round = False
-# every project starts with a single stitch
-stitches.append(stitch(0, "k", [], [])) # 
-needles.append(0)
+# every project starts with a single stitch ---- off by one error! I added a check below, so stitch is only added if co
+# stitches.append(stitch(0, "k", [], [])) # 
+# needles.append(0)
 
 # need stitch object -- each stitch has links to all the stitches below them -- directed graph is top down. 
 for line in contents:
@@ -206,6 +222,7 @@ for line in contents:
     # knit steps:
     # for as many stitches as we have,
     # figure out who is behind us on the needle -- subtract direction from place
+    logging.debug("Current stitch: %s", str(s))
     if (s in stitch_techniques):
       stitch_technique = stitch_techniques[s]
     else:
@@ -218,40 +235,66 @@ for line in contents:
     # for edge in stitch_technique.edge_list:
     #   # follow edge.v to where we need to go
     #   v.append(edge.v)
-    
-    #TODO : This needs to come out of the edge loop
-    for i in range(stitch_technique.add):
-      sbeh, sbel, skil, edges_new = edge_make(stitch_technique.edge_list, needles, place, progression, stitches)
-      # also get list of stitches to kill
-      stitches.append(stitch(count, stitch_technique.character, sbeh, sbel))
-      edges.append(edges_new)
-      # bump any finished stitches off the needles
-      for vi in skil:
-        needles.remove(vi)
-        place-=1
-      # add the new stitch to the needle
-      needles.insert(place, count)#[place] = count
+
+    if(len(needles) == 0):
+      if(s == 'co'):
+        stitches.append(stitch(0, "k", [], [])) # 
+        needles.append(0)
+      else:
+        logging.error("ERROR: Must start by casting on stitches!")
+    else:
+      #TODO : This needs to come out of the edge loop
+      for i in range(stitch_technique.add):
+        sbeh, sbel, skil, edges_new = edge_make(stitch_technique.edge_list, needles, place, progression, stitches)
+        logging.debug("Removing stitch: %s", str(skil))
+        # also get list of stitches to kill
+        stitches.append(stitch(count, stitch_technique.character, sbeh, sbel))
+        edges.append(edges_new)
+        # bump any finished stitches off the needles
+        for vi in skil:
+          needles.remove(vi)
+          place+=progression
+        # add the new stitch to the needle
+        logging.debug("Adding stitch %s, to %s", str(count), str(place))
+        if(progression < 1):
+          needles.insert(place+1, count)#[place] = count
+        else:
+          needles.insert(place, count)
 
 
-      count += 1
-      place += progression
+        count += 1
+        # place += progression  #doublecounting?
+      logging.debug("Place after adding: %s", str(place))
+      for i in range(stitch_technique.extra):
+        sbeh, sbel, skil, edges_new = edge_make(stitch_technique.edge_list, needles, place, progression, stitches)      
+        sbel = []
+        skil = []
+        stitches.append(stitch(count, stitch_technique.character, sbeh, sbel))
+        edges.append(edges_new)
+        needles.insert(place+1, count)
+        count += 1
+        place += progression
 
-    for i in range(stitch_technique.extra):
-      sbeh, sbel, skil, edges_new = edge_make(stitch_technique.edge_list, needles, place, progression, stitches)      
-      sbel = []
-      skil = []
-      stitches.append(stitch(count, stitch_technique.character, sbeh, sbel))
-      edges.append(edges_new)
-      needles.insert(place+1, count)
-      count += 1
-      place += progression
+      # end by incrementing cursor
+      # place += progression*stitch_technique.cursor_inc # this has to add up to all of the count additions above
+      # change cursor direction
+      if(stitch_technique.cursor_dir):
+        right_side = 0 if right_side == 1 else 1#right_side >> stitch_technique.cursor_dir
+      progression = 2*right_side - 1
+      # place += progression*stitch_technique.cursor_inc
+      logging.debug("Current place: %s, current progression %s", str(place), str(progression))
+  
 
-    # end by incrementing cursor
-    # place += progression*stitch_technique.cursor_inc # this has to add up to all of the count additions above
-    # change cursor direction
-    right_side = right_side >> stitch_technique.cursor_dir
-    progression = 2*right_side - 1
-    place += progression*stitch_technique.cursor_inc
+
+
+
+
+
+
+
+
+
+
   # 0. store "active" stitch
   # 1. label character with stitch character
   # 2. increment cursor by stitch cursor increment
