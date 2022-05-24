@@ -131,7 +131,7 @@ def edge_make(edges, needles, place, progression, stitches):#, edge):
         continue
 
     vi = needles[place + edge.v[0]*progression]
-    for i in range(v[1]):
+    for i in range(edge.v[1]):
       vi = stitches[vi].below[0]
     if edge.orient == "h":
       sbeh.append(vi)
@@ -224,6 +224,7 @@ for line in contents:
       sbeh, sbel, skil, edges_new = edge_make(stitch_technique.edge_list, needles, place, progression, stitches)
       # also get list of stitches to kill
       stitches.append(stitch(count, stitch_technique.character, sbeh, sbel))
+      edges.append(edges_new)
       # bump any finished stitches off the needles
       for vi in skil:
         needles.remove(vi)
@@ -240,6 +241,7 @@ for line in contents:
       sbel = []
       skil = []
       stitches.append(stitch(count, stitch_technique.character, sbeh, sbel))
+      edges.append(edges_new)
       needles.insert(place+1, count)
       count += 1
       place += progression
