@@ -4,7 +4,7 @@
 #        if "round" join beginning and end of cast-on -- leave room for mobius
 
 
-#TODO :  1.  Fix place and needles  2.  Add edges correctly 
+#TODO :   1.  Add edges correctly 
 
 import sys
 import pandas as pd
@@ -185,7 +185,7 @@ for key in sdict.keys():
                sdict[key]["cursor_dir"])
 
 
-fi = "patterns/garter_4_8_20.txt"
+fi = "patterns/extra_caston.txt"
 file = open(fi, "r")
 contents = file.readlines()
 file.close()
@@ -254,6 +254,8 @@ for line in contents:
         for vi in skil:
           needles.remove(vi)
           place+=progression
+          if(place < -1):
+            place = -1
         # add the new stitch to the needle
         logging.debug("Adding stitch %s, to %s", str(count), str(place))
         if(progression < 1):
@@ -274,7 +276,8 @@ for line in contents:
         needles.insert(place+1, count)
         count += 1
         place += progression
-
+        if(place < -1):
+          place = -1
       # end by incrementing cursor
       # place += progression*stitch_technique.cursor_inc # this has to add up to all of the count additions above
       # change cursor direction
