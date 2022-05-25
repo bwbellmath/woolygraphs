@@ -183,6 +183,8 @@ for key in sdict.keys():
 
 
 fi = "patterns/small_stockinette.txt"
+pat = fi.split("/")[1]
+pat = pat.split(".")[0]#"patterns/small_stockinette.txt"
 file = open(fi, "r")
 contents = file.readlines()
 file.close()
@@ -196,7 +198,7 @@ logging.basicConfig(filename='logfile.log', level=logging.DEBUG, force=True)
 stitches   = [] # list of all stitches
 #stitches_c = [] # list of stitch characters
 needles    = [] # list of stitches that are being held on the needles
-edges = []   # list of connections among stitches
+edges = np.empty((0, 2), dtype=int)#[]   # list of connections among stitches
 # place always lists the position of the "current" stitch  
 place = 0    # start at position after 0th stitch  #I don't think place currently works, sometimes I get negative? 
 count = 1
@@ -245,7 +247,8 @@ for line in contents:
         sbeh, sbel, skil, edges_new = edge_make(stitch_technique.edge_list, needles, place, progression, count)
         # also get list of stitches to kill
         stitches.append(stitch(count, stitch_technique.character, sbeh, sbel))
-        edges.extend(edges_new)
+        #edges.extend(edges_new)
+        edges = np.append(edges, np.array(edges_new, dtype=int), axis=0) 
         # bump any finished stitches off the needles
         for vi in skil:
           needles.remove(vi)
@@ -267,7 +270,8 @@ for line in contents:
         sbel = []
         skil = []
         stitches.append(stitch(count, stitch_technique.character, sbeh, sbel))
-        edges.extend(edges_new)
+        #edges.extend(edges_new)
+        edges = np.append(edges, np.array(edges_new, dtype=int), axis=0) 
         needles.insert(place+1, count)
         count += 1
         place += progression
@@ -283,12 +287,14 @@ for line in contents:
       logging.debug("Edges: %s, Stitches: %s", str(edges), str(len(stitches)))
   
 
+# convert edge list to adjacency matrix
+adj = np.matrix(np.zeros((len(stitches), len(stitches)), dtype=int))
+adj[edges[:,0], edges[:,1]] = 1
+adj[edges[:,1], edges[:,0]] = 1
 
-
-
-
-
-
+df = pd.DataFrame(adj)
+fo = F"matrices/{pat}.csv"#"C:/Users/Nexus/Desktop/mobius-python.csv"
+df.to_csv(fo)
 
 
 
