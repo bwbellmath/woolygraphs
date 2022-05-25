@@ -131,46 +131,27 @@ def edge_make(edges, needles, place, progression, count):#, edge):
   sbel = []#below
   skil = []#kill
   edge_list = []
-  # logging.debug("Things in edge_make: needles %s, place %s, progression %s, stitches %s", str(needles), str(place), str(progression), str(stitches))
-  # logging.debug("Current stitch??? %s", str(needles[place]))
   logging.debug("On the needles: %s", str(needles))
   # follow stitches down and to the right to get final position
   for edge in edges:
+    #Add stitch behind
     if edge.orient == 'h':
       if(count - 1 >= 0):
         sbeh.append(count -1)
         edge_list.append((count, count-1))
+    #Add stitch below
     elif edge.orient == 'v':
       stitch_below = needles[place]
       sbel.append(stitch_below)
       if(stitch_below != count -1):
         edge_list.append((count, stitch_below))
-
-    # pos = place + edge.v[0]*progression
-    # # if we're working flat at the end of the work, and we're "h", skip.
-    # if (round == False):
-    #   if (pos >= len(needles)) or (pos < -1):
-    #     logging.debug("Skipping cause on edge")
-    #     continue
+    #Dunno what this does, but it works
     if(progression > 0):
       hi = needles[place + 1 + edge.v[0]]
     else:
       hi = needles[place + edge.v[0]]#needles[place + edge.v[0]*progression]
-    # logging.debug("Finding stitch in position %s", str(place + edge.v[0]))
-    # for i in range(edge.v[1]):
-    #   logging.debug("If this runs, it's currently an error.  Maybe it's for fancy stitches %s", edge.v[1])
-    #   vi = stitches[vi].below[0]
-    # vi = -1
-    # if edge.orient == "h":
-    #   sbeh.append(hi)
-    #   edge_list.append((hi, count))
-    # elif edge.orient == "v":
-    #   sbel.append(vi)
-    #   edge_list.append((vi, count))
-
     if edge.bk == "b":
       skil.append(hi)
-    logging.debug("Current values of sbeh, sbel, skil, edge_list: %s, %s, %s, %s", str(sbeh), str(sbel),str(skil), str(edge_list) )
   return sbeh, sbel, skil, edge_list
 
 
@@ -273,7 +254,6 @@ for line in contents:
           if(place < -1):
             place = -1
         # add the new stitch to the needle
-        logging.debug("Adding stitch %s, to %s", str(count), str(place))
         if(progression < 1):
           needles.insert(place+1, count)#[place] = count
         else:
@@ -282,7 +262,6 @@ for line in contents:
 
         count += 1
         # place += progression  #doublecounting?
-      # logging.debug("Place after adding: %s", str(place))
       for i in range(stitch_technique.extra):
         sbeh, sbel, skil, edges_new = edge_make(stitch_technique.edge_list, needles, place, progression, count)      
         sbel = []
@@ -301,9 +280,7 @@ for line in contents:
       if(stitch_technique.cursor_dir):
         right_side = 0 if right_side == 1 else 1#right_side >> stitch_technique.cursor_dir
       progression = 2*right_side - 1
-      # place += progression*stitch_technique.cursor_inc
-      # logging.debug("Current place: %s, current progression %s", str(place), str(progression))
-      logging.debug("Edges: %s", str(edges))
+      logging.debug("Edges: %s, Stitches: %s", str(edges), str(len(stitches)))
   
 
 
