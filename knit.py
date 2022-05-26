@@ -146,7 +146,10 @@ def edge_make(edges, needles, place, progression, count):#, edge):
         edge_list.append((count, count-1))
     #Add stitch below
     elif edge.orient == 'v':
-      stitch_below = needles[place]
+      if(progression > 0):
+        stitch_below = needles[place+1]
+      else:
+        stitch_below = needles[place]
       sbel.append(stitch_below)
       if(stitch_below != count -1):
         edge_list.append((count, stitch_below))
