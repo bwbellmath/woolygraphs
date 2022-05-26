@@ -1,3 +1,8 @@
+# index before, between, and after stitches, rather than on stitches. 
+# place = 0 -- before any stitches
+#0 < place < number of stitches -- between stitches
+# place > number of stitches -- after stitches.
+
 # instead of starting with 0 stitch, this should be a one-time cast-on exception
 # follow "turn" through the process and determien where place should end up
 # TODO : figure out how to work in the round
@@ -154,7 +159,16 @@ def edge_make(edges, needles, place, progression, count):#, edge):
       skil.append(hi)
   return sbeh, sbel, skil, edge_list
 
+class project(object):
+  def __init__(self, name):
+    self.name = name
+    self.edges = [] #np.empty((0, 2), dtype=int)
+    self.stitches = [] #np.empty((0, 1), dtype=int)
+    self.edge_list = np.empty((0, 2), dtype=int)
+    self.edge_weights = np.empty((0, 1), dtype=int)
 
+  def knit(stitch_tech):
+  
 
 # k : character : "k"
 #     cursor_inc       : 1
@@ -295,8 +309,6 @@ adj[edges[:,1], edges[:,0]] = 1
 df = pd.DataFrame(adj)
 fo = F"matrices/{pat}.csv"#"C:/Users/Nexus/Desktop/mobius-python.csv"
 df.to_csv(fo)
-
-
 
 
   # 0. store "active" stitch
