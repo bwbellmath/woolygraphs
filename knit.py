@@ -199,7 +199,7 @@ for key in sdict.keys():
                sdict[key]["cursor_dir"])
 
 
-fi = "patterns/small_stockinette.txt"
+fi = "patterns/kfb_small.txt"
 pat = fi.split("/")[1]
 pat = pat.split(".")[0]#"patterns/small_stockinette.txt"
 file = open(fi, "r")
@@ -260,16 +260,27 @@ for line in contents:
         logging.error("ERROR: Must start by casting on stitches!")
     else:
       #TODO : This needs to come out of the edge loop
+      skil_first = []
+      place_under = 0
       for i in range(stitch_technique.add):
-        sbeh, sbel, skil, edges_new = edge_make(stitch_technique.edge_list, needles, place, progression, count)
+        if(i == 0):
+          place_under = place
+        else:
+          place -= progression
+          if(place < -1):
+            place = -1
+        sbeh, sbel, skil, edges_new = edge_make(stitch_technique.edge_list, needles, place_under, progression, count)
+        if(i == 0):
+          skil_first = skil
         # also get list of stitches to kill
         stitches.append(stitch(count, stitch_technique.character, sbeh, sbel))
         #edges.extend(edges_new)
         edges = np.append(edges, np.array(edges_new, dtype=int), axis=0) 
         # bump any finished stitches off the needles
-        for vi in skil:
-          needles.remove(vi)
-          place+=progression
+        if(i == stitch_technique.add -1):
+          for vi in skil_first:
+            needles.remove(vi)
+          place+=stitch_technique.add*progression
           #Necessary in case we're adding stitches off the end
           if(place < -1):
             place = -1
@@ -278,9 +289,9 @@ for line in contents:
           needles.insert(place+1, count)#[place] = count
         else:
           needles.insert(place, count)
-
-
         count += 1
+
+
         # place += progression  #doublecounting?
       for i in range(stitch_technique.extra):
         sbeh, sbel, skil, edges_new = edge_make(stitch_technique.edge_list, needles, place, progression, count)      
