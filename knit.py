@@ -199,7 +199,7 @@ for key in sdict.keys():
                sdict[key]["cursor_dir"])
 
 
-fi = "patterns/kfb_small.txt"
+fi = "patterns/k2tog_small.txt"
 pat = fi.split("/")[1]
 pat = pat.split(".")[0]#"patterns/small_stockinette.txt"
 file = open(fi, "r")
@@ -280,7 +280,7 @@ for line in contents:
         if(i == stitch_technique.add -1):
           for vi in skil_first:
             needles.remove(vi)
-          place+=stitch_technique.add*progression
+          place+=(stitch_technique.add+stitch_technique.cursor_inc)*progression
           #Necessary in case we're adding stitches off the end
           if(place < -1):
             place = -1
