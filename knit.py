@@ -9,12 +9,6 @@
 #        if "round" join beginning and end of cast-on -- leave room for mobius
 
 
-#TODO :   1.  Add edges correctly 
-
-#Questions from Ryn for Brian:
-
-#Is orientation, bump/keep, etc. useful edge properties that I should keep track of in the output graph?
-#What format do you want the output graph in? 
 
 
 import sys
@@ -78,12 +72,9 @@ class edge(object):
 #    k : (0, 0, "v", "b") (0, -1, "h", "k")
 class stitch_tech(object):
   def __init__(self,
-               edge_list,
                character = "k",
-               cursor_inc = 0,
-               keep = False,
+               kill = 1,
                add = 1,
-               extra = 0,
                cursor_dir=False):
 
     # change direction of cursor?
@@ -91,15 +82,15 @@ class stitch_tech(object):
     self.character = character
     # cursor increment independent from added stitches
     # e.g. for "k" we have 0, for "slip 1", we have 1, for "turn" we have 1
-    self.cursor_inc = cursor_inc
+    # self.cursor_inc = cursor_inc
     # keep cursor stitch on needle?
-    self.keep = keep
+    self.kill = kill
     # number of stitches to add INTO cursor stitch (i.e. kfbs)
     self.add = add
     # number of stitches to add AFTER cursor stitch (i.e. yarnovers)
-    self.extra = extra
+    # self.extra = extra
     # e.g. for "k" we have [[-1, 0], [0, -1]] 
-    self.edge_list = edge_list
+    # self.edge_list = edge_list
     # change direction of cursor : True or False
     self.cursor_dir = cursor_dir
 
@@ -116,19 +107,30 @@ class stitch(object):
   def __init__(self, 
                index,
                character = "k",
-               behind = [],
-               below = []):
+               connected = []):
     
     # unique index of this stitch
     self.index = index
     # whether this stitch is a knit (k) or purl (p)
     self.character = character
-    # list of stitches connected behind this stitch
-    self.behind = behind
-    # list of stitches connected below this stitch. in order left to right
-    # TODO : check that we want to keep universal left and right according to right side
-    self.below = below
+    # list of stitches connected to this stitch
+    self.connected = connected
+    # self.behind = behind
+    # # list of stitches connected below this stitch. in order left to right
+    # # TODO : check that we want to keep universal left and right according to right side
+    # self.below = below
 
+
+def get_stitch_by_id(work, row_offset, col_offset, curr):
+  row = curr[0]+row_offset
+  col = curr[1] + col_offset
+  if(row < 0 or col < 0):
+    return None
+  if(len(work) >= row and len(work[row]) >= col):
+    print("TRY:", row, col)
+    return work[row][col]
+  else:
+    return None
 
 def edge_make(edges, needles, place, progression, count):#, edge):
   #v = edge.v
@@ -176,7 +178,13 @@ def edge_make(edges, needles, place, progression, count):#, edge):
 # k : character : "k"
 #     cursor_inc       : 1
 
-file = open("stitches.txt", "r")
+
+"""
+Setting up the stitch dictionary
+
+Reads in file (stitches.txt)
+"""
+file = open("stitches_2.txt", "r")
 contents = file.read()
 sdict = ast.literal_eval(contents)
 file.close()
@@ -184,22 +192,26 @@ file.close()
 # make dict of string objects...
 stitch_techniques = {}
 for key in sdict.keys():
-  edge_list = []
-  for dedge in sdict[key]["edge_list"]:
-    edge_list.append(edge(dedge["v"],
-                          dedge["orient"],
-                          dedge["bk"],
-                          dedge["length"]))
-  stitch_techniques[key] = stitch_tech(edge_list,
+  # edge_list = []
+  # for dedge in sdict[key]["edge_list"]:
+  #   edge_list.append(edge(dedge["v"],
+  #                         dedge["orient"],
+  #                         dedge["bk"],
+  #                         dedge["length"]))
+  stitch_techniques[key] = stitch_tech(
                sdict[key]["character"],
-               sdict[key]["cursor_inc"],
-               sdict[key]["keep"],
+               sdict[key]["kill"],
                sdict[key]["add"],
-               sdict[key]["extra"],
                sdict[key]["cursor_dir"])
 
 
-fi = "patterns/k2tog_small.txt"
+
+"""
+Reading in the stitch file and creating the edge dictionary
+
+"""
+
+fi = "patterns/acorn-3.txt"
 pat = fi.split("/")[1]
 pat = pat.split(".")[0]#"patterns/small_stockinette.txt"
 file = open(fi, "r")
@@ -212,28 +224,40 @@ logging.basicConfig(filename='logfile.log', level=logging.DEBUG, force=True)
 # cursor position
 # edge list
 
-stitches   = [] # list of all stitches
-#stitches_c = [] # list of stitch characters
-needles    = [] # list of stitches that are being held on the needles
-edges = np.empty((0, 2), dtype=int)#[]   # list of connections among stitches
-# place always lists the position of the "current" stitch  
-place = 0    # start at position after 0th stitch  #I don't think place currently works, sometimes I get negative? 
-count = 1
-right_side = True # start on right side of work -- cursor going right to left
-progression = 1
 
-round = False
-# every project starts with a single stitch ---- off by one error! I added a check below, so stitch is only added if co
+#Initializing variables
+stitches   = [] # list of all stitches
+right_needle  = [] # list of stitches that are being held on the needles
+left_needle = []
+work = [[]] # list of everything that's been done
+edges = []   # list of connections among stitches
+# place always lists the position of the "current" stitch  
+place = 0    # start at position after 0th stitch  
+count = 0    #Number of stitches
+current_location = [0,0]  #Where we are currently
+right_side = 1 # start on right side of work -- cursor going right to left
+progression = 1
+row = 0 #Row number that we are on
+
+round = False #We have not made anything in the round work....
+
+edge = True
+# every project starts with co values
 # stitches.append(stitch(0, "k", [], [])) # 
 # needles.append(0)
+weight_h = 1
+weight_v = 1.5
 
 # need stitch object -- each stitch has links to all the stitches below them -- directed graph is top down. 
 for line in contents:
+  print("line:", line)
   strings = np.array(line.split(" "))
   # remove newlines and blanks
   strings = strings[strings != "\n"]
   strings = strings[strings != ""]
+  st_num = 0
   for s in strings:
+    st_num+=1
     s = s.strip()
     # knit steps:
     # for as many stitches as we have,
@@ -241,84 +265,72 @@ for line in contents:
     logging.debug("Current stitch: %s", str(s))
     if (s in stitch_techniques):
       stitch_technique = stitch_techniques[s]
-    else:
-      print(F"ERROR : Unknown stitch {s}, stopping")
-      break
-    #last = needles[place-progression]
-    # add stitches into stitch below AND stitch before
-    # loop through edges to figure out where stitches get connected
-    # v = []
-    # for edge in stitch_technique.edge_list:
-    #   # follow edge.v to where we need to go
-    #   v.append(edge.v)
-
-    if(len(needles) == 0):
-      if(s == 'co'):
-        stitches.append(stitch(0, "k", [], [])) # 
-        needles.append(0)
-      else:
-        logging.error("ERROR: Must start by casting on stitches!")
-    else:
-      #TODO : This needs to come out of the edge loop
-      skil_first = []
-      place_under = 0
-      for i in range(stitch_technique.add):
-        if(i == 0):
-          place_under = place
-        else:
-          place -= progression
-          if(place < -1):
-            place = -1
-        sbeh, sbel, skil, edges_new = edge_make(stitch_technique.edge_list, needles, place_under, progression, count)
-        if(i == 0):
-          skil_first = skil
-        # also get list of stitches to kill
-        stitches.append(stitch(count, stitch_technique.character, sbeh, sbel))
-        #edges.extend(edges_new)
-        edges = np.append(edges, np.array(edges_new, dtype=int), axis=0) 
-        # bump any finished stitches off the needles
-        if(i == stitch_technique.add -1):
-          for vi in skil_first:
-            needles.remove(vi)
-          place+=(stitch_technique.add+stitch_technique.cursor_inc)*progression
-          #Necessary in case we're adding stitches off the end
-          if(place < -1):
-            place = -1
-        # add the new stitch to the needle
-        if(progression < 1):
-          needles.insert(place+1, count)#[place] = count
-        else:
-          needles.insert(place, count)
-        count += 1
-
-
-        # place += progression  #doublecounting?
-      for i in range(stitch_technique.extra):
-        sbeh, sbel, skil, edges_new = edge_make(stitch_technique.edge_list, needles, place, progression, count)      
-        sbel = []
-        skil = []
-        stitches.append(stitch(count, stitch_technique.character, sbeh, sbel))
-        #edges.extend(edges_new)
-        edges = np.append(edges, np.array(edges_new, dtype=int), axis=0) 
-        needles.insert(place+1, count)
-        count += 1
-        place += progression
-        #Necessary in case we're adding stitches off one of the ends
-        if(place < -1):
-          place = -1
-      # end by incrementing cursor
-      # place += progression*stitch_technique.cursor_inc # this has to add up to all of the count additions above
-      # change cursor direction
       if(stitch_technique.cursor_dir):
-        right_side = 0 if right_side == 1 else 1#right_side >> stitch_technique.cursor_dir
-      progression = 2*right_side - 1
+        tmp = left_needle.copy()
+        left_needle = right_needle.copy()
+        right_needle = tmp.copy()
+        edge = True
+      added_st = []
+      for a in range(stitch_technique.add):
+        right_needle.append(count)
+        added_st.append(count)
+        if(not edge):
+          edges.append([count, count-1, weight_h])
+        else:
+            edge = False
+        count +=1
+      for k in range(stitch_technique.kill):
+        used_st = left_needle.pop()
+        for a in added_st:
+          edges.append([used_st, a, weight_v])
       logging.debug("Edges: %s, Stitches: %s", str(edges), str(len(stitches)))
-  
+    else:
+      #We got a cable people
+      #Currently assuming even number for cabling.  I have to remember what the convention is for odd number cables...
+      #Is there a convention?  Is this automatable?
+      #Also, this does not assume any kind of front/back on the stitches
+      if(s[0] == 'c'):
+        num = int(s[1:-1])
+        held_st = []
+        print("COunt before:", count)
+        for i in range(int(num/2)):
+          held_st.append(left_needle.pop())
+        for j in range(int(num/2)):
+          right_needle.append(count)
+          used_st = left_needle.pop()
+          edges.append([used_st, count, weight_v])
+          edges.append([count, count-1, weight_h])
+          count+=1
+        for k in held_st:
+          right_needle.append(count)
+          edges.append([k, count, weight_v])
+          edges.append([count, count-1, weight_h])
+          count+=1
+        print("count after", count)
+        print("CABLE NUM:", num)
+      else: 
+        print(F"ERROR : Unknown stitch {s}, stopping")
+        break
 
 # convert edge list to adjacency matrix
-adj = np.matrix(np.zeros((len(stitches), len(stitches)), dtype=int))
-adj[edges[:,0], edges[:,1]] = 1
-adj[edges[:,1], edges[:,0]] = 1
+adj = np.matrix(np.zeros((count, count)), dtype=int)
+# edges = np.asarray(edges)
+# adj[edges[:,0], edges[:,1]] = 1
+# adj[edges[:,1], edges[:,0]] = 1
+for e in edges:
+  adj[e[0], e[1]] = 1
+
+with open(F'dot/{pat}.dot','w') as out:
+  out.write("Graph{")
+  for e in edges:
+    out.write('{} -- {} [weight={}];\n'.format(e[0],e[1],e[2]))
+  out.write("}")
+    # for line in ('digraph G {','size="16,16";','splines=true;'):
+    #     out.write('{}\n'.format(line))  
+    # for start,d in nestedg.items():
+    #     for end,weight in d.items():
+    #           out.write('{} -> {} [ label="{}" ];\n'.format(start,end,weight))
+    # out.write('}\n')
 
 df = pd.DataFrame(adj)
 fo = F"matrices/{pat}.csv"#"C:/Users/Nexus/Desktop/mobius-python.csv"
