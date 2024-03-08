@@ -382,11 +382,11 @@ class D3ForceGraph {
       //.force("collide", d3.forceCollide(25))
       //.force("collide", d3.forceCollide(50))
       .force("collide", d3.forceCollide(100))
-      .force("angle", forceAngle((d, i) => 90)
-                        .strength(0.01)
-                        .distance(1)
-                        // specify links() to only apply the angle force to those linked nodes
-                        .links(graph.graphData.links));
+      // .force("angle", forceAngle((d, i) => 90)
+      //                   .strength(0.01)
+      //                   .distance(1)
+      //                   // specify links() to only apply the angle force to those linked nodes
+      //                   .links(graph.graphData.links));
 
       //.force("collide", d3.forceCollide(d=>collide_arr[d.id]))
       //.force("collide", d3.forceCollide(d=>t.determine_collision_force(d)))
