@@ -1,0 +1,7 @@
+* Layout Objectives
+> centered at origin: mean of all stitch vertex positions is 0
+> edge lengths preserved
+> as flat as possible -- angles among edges crossing one vertex want
+  to be in the same plane or in as few planes as possible.
+> edge lengths vary by stitch type -- model should ideally learn this
+  in order to preserve mostly the "standard" stitches for a pattern
