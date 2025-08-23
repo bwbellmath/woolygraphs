@@ -1,60 +1,185 @@
 # cursor position is (0,0)
-{ "k" : { "character"  : "k",
-          "cursor_inc"  : 0,
-	  "keep"        : True,
-	  "add"         : 1,
-	  "extra"       : 0,
-          "edge_list"   : [{ "v" : (-1, 0), "orient" : "h", "bk" : "k", "length" : 1.0},
-                           { "v" : (0, -1), "orient" : "v", "bk" : "b", "length" : 1.0}],
-	  "cursor_dir"  : False},
-  "co" : { "character"  : "k",
-          "cursor_inc"  : 0,
-	  "keep"        : True,
-	  "add"         : 0,
-	  "extra"       : 1,
-          "edge_list"   : [{ "v" : (-1, 0), "orient" : "h", "bk" : "k", "length" : 1.0}],
-	  "cursor_dir"  : False},
-  "bo" : { "character"  : "p",
-          "cursor_inc"  : 0,
-	  "keep"        : False,
-	  "add"         : 0,
-	  "extra"       : 0,
-          "edge_list"   : [{ "v" : (-1, 0), "orient" : "h", "bk" : "k", "length" : 1.0},
-                           { "v" : (0, -1), "orient" : "v", "bk" : "b", "length" : 1.0}],
-	  "cursor_dir"  : False},
-
-  "p" : { "character"  : "p",
-          "cursor_inc"  : 0,
-	  "keep"        : True,
-	  "add"         : 1,
-	  "extra"       : 0,
-          "edge_list"   : [{ "v" : (-1, 0), "orient" : "h", "bk" : "k", "length" : 1.0},
-                           { "v" : (0, -1), "orient" : "v", "bk" : "b", "length" : 1.0}],
-	  "cursor_dir"  : False},
-  "kfb" : { "character"  : "k",
-          "cursor_inc"  : 0,
-	  "keep"        : True,
-	  "add"         : 1,
-	  "extra"       : 0,
-          "edge_list"   : [{ "v" : (-1, 0), "orient" : "h", "bk" : "k", "length" : 1.0},
-                           { "v" : (0, -1), "orient" : "v", "bk" : "b", "length" : 1.0}],
-	  "cursor_dir"  : False},
-  "k2tog" : { "character"  : "k",
-          "cursor_inc"  : 0,
-	  "keep"        : True,
-	  "add"         : 1,
-	  "extra"       : 0,
-          "edge_list"   : [{ "v" : (-1, 0), "orient" : "h", "bk" : "k", "length" : 1.0},
-                           { "v" : (0, -1), "orient" : "v", "bk" : "b", "length" : 1.0},
-                           # TODO : the geometry to figure out how long
-			   #these stitches need to be
-                           { "v" : (1, -1), "orient" : "v", "bk" : "b", "length" : 1.0}],
-	  "cursor_dir"  : False},
-  "turn" : { "character"  : "k",
-          "cursor_inc"  : 0,
-	  "keep"        : True,
-	  "add"         : 0,
-	  "extra"       : 0,
-          "edge_list"   : [],
-	  "cursor_dir"  : True}
+{
+  "k": {
+    "character": "k",
+    "cursor_inc": 1,
+    "keep": false,
+    "add": 1,
+    "extra": 0,
+    "edge_list": [
+      {"v": [-1, 0], "orient": "h", "bk": "k", "length": 1.0},
+      {"v": [0, -1], "orient": "v", "bk": "b", "length": 1.0}
+    ],
+    "cursor_dir": false
+  },
+  "p": {
+    "character": "p",
+    "cursor_inc": 1,
+    "keep": false,
+    "add": 1,
+    "extra": 0,
+    "edge_list": [
+      {"v": [-1, 0], "orient": "h", "bk": "k", "length": 1.0},
+      {"v": [0, -1], "orient": "v", "bk": "b", "length": 1.0}
+    ],
+    "cursor_dir": false
+  },
+  "co": {
+    "character": "k",
+    "cursor_inc": 1,
+    "keep": true,
+    "add": 0,
+    "extra": 1,
+    "edge_list": [
+      {"v": [-1, 0], "orient": "h", "bk": "k", "length": 1.0}
+    ],
+    "cursor_dir": false
+  },
+  "yo": {
+    "character": "k",
+    "cursor_inc": 1,
+    "keep": true,
+    "add": 0,
+    "extra": 1,
+    "edge_list": [
+      {"v": [-1, 0], "orient": "h", "bk": "k", "length": 1.2}
+    ],
+    "cursor_dir": false
+  },
+  "bo": {
+    "character": "k",
+    "cursor_inc": 1,
+    "keep": false,
+    "add": 0,
+    "extra": 0,
+    "edge_list": [
+      {"v": [-1, 0], "orient": "h", "bk": "k", "length": 1.0},
+      {"v": [0, -1], "orient": "v", "bk": "b", "length": 1.0}
+    ],
+    "cursor_dir": false
+  },
+  "kfb": {
+    "character": "k",
+    "cursor_inc": 1,
+    "keep": false,
+    "add": 2,
+    "extra": 0,
+    "edge_list": [
+      {"v": [-1, 0], "orient": "h", "bk": "k", "length": 1.0},
+      {"v": [0, -1], "orient": "v", "bk": "b", "length": 1.0}
+    ],
+    "cursor_dir": false
+  },
+  "kfb3": {
+    "character": "k",
+    "cursor_inc": 1,
+    "keep": false,
+    "add": 3,
+    "extra": 0,
+    "edge_list": [
+      {"v": [-1, 0], "orient": "h", "bk": "k", "length": 1.0},
+      {"v": [0, -1], "orient": "v", "bk": "b", "length": 1.0}
+    ],
+    "cursor_dir": false
+  },
+  "kfb4": {
+    "character": "k",
+    "cursor_inc": 1,
+    "keep": false,
+    "add": 4,
+    "extra": 0,
+    "edge_list": [
+      {"v": [-1, 0], "orient": "h", "bk": "k", "length": 1.0},
+      {"v": [0, -1], "orient": "v", "bk": "b", "length": 1.0}
+    ],
+    "cursor_dir": false
+  },
+  "kfb5": {
+    "character": "k",
+    "cursor_inc": 1,
+    "keep": false,
+    "add": 5,
+    "extra": 0,
+    "edge_list": [
+      {"v": [-1, 0], "orient": "h", "bk": "k", "length": 1.0},
+      {"v": [0, -1], "orient": "v", "bk": "b", "length": 1.0}
+    ],
+    "cursor_dir": false
+  },
+  "kfb3-3": {
+    "character": "k",
+    "cursor_inc": 3,
+    "keep": false,
+    "add": 3,
+    "extra": 0,
+    "edge_list": [
+      {"v": [-1, 0], "orient": "h", "bk": "k", "length": 1.0},
+      {"v": [0, -1], "orient": "v", "bk": "b", "length": 1.0},
+      {"v": [1, -1], "orient": "v", "bk": "b", "length": 1.0},
+      {"v": [2, -1], "orient": "v", "bk": "b", "length": 1.0}
+    ],
+    "cursor_dir": false
+  },
+  "ssk": {
+    "character": "k",
+    "cursor_inc": 2,
+    "keep": false,
+    "add": 1,
+    "extra": 0,
+    "edge_list": [
+      {"v": [-1, 0], "orient": "h", "bk": "k", "length": 1.0},
+      {"v": [0, -1], "orient": "v", "bk": "b", "length": 1.4},
+      {"v": [1, -1], "orient": "v", "bk": "b", "length": 1.4}
+    ],
+    "cursor_dir": false
+  },
+  "k2tog": {
+    "character": "k",
+    "cursor_inc": 2,
+    "keep": false,
+    "add": 1,
+    "extra": 0,
+    "edge_list": [
+      {"v": [-1, 0], "orient": "h", "bk": "k", "length": 1.0},
+      {"v": [0, -1], "orient": "v", "bk": "b", "length": 1.4},
+      {"v": [1, -1], "orient": "v", "bk": "b", "length": 1.4}
+    ],
+    "cursor_dir": false
+  },
+  "p2tog": {
+    "character": "p",
+    "cursor_inc": 2,
+    "keep": false,
+    "add": 1,
+    "extra": 0,
+    "edge_list": [
+      {"v": [-1, 0], "orient": "h", "bk": "k", "length": 1.0},
+      {"v": [0, -1], "orient": "v", "bk": "b", "length": 1.4},
+      {"v": [1, -1], "orient": "v", "bk": "b", "length": 1.4}
+    ],
+    "cursor_dir": false
+  },
+  "k3tog": {
+    "character": "k",
+    "cursor_inc": 3,
+    "keep": false,
+    "add": 1,
+    "extra": 0,
+    "edge_list": [
+      {"v": [-1, 0], "orient": "h", "bk": "k", "length": 1.0},
+      {"v": [0, -1], "orient": "v", "bk": "b", "length": 1.7},
+      {"v": [1, -1], "orient": "v", "bk": "b", "length": 1.7},
+      {"v": [2, -1], "orient": "v", "bk": "b", "length": 1.7}
+    ],
+    "cursor_dir": false
+  },
+  "turn": {
+    "character": "k",
+    "cursor_inc": 0,
+    "keep": true,
+    "add": 0,
+    "extra": 0,
+    "edge_list": [],
+    "cursor_dir": true
+  }
 }
