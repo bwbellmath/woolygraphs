@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WoolyGraphs - 3D Knitting Visualizer</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            max-width: 300px;
+            z-index: 100;
+        }
+        h1 {
+            margin: 0 0 15px 0;
+            font-size: 20px;
+            color: #4ecdc4;
+        }
+        .control-group {
+            margin: 15px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: #4ecdc4;
+        }
+        input[type="range"] {
+            width: 100%;
+        }
+        select, input[type="file"] {
+            width: 100%;
+            padding: 5px;
+            margin-top: 5px;
+            background: #2a2a3e;
+            color: #eee;
+            border: 1px solid #4ecdc4;
+            border-radius: 3px;
+        }
+        button {
+            background: #4ecdc4;
+            color: #1a1a2e;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #45b8b0;
+        }
+        .stats {
+            font-size: 12px;
+            color: #999;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #333;
+        }
+        #status {
+            font-size: 12px;
+            color: #ffe66d;
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(255, 230, 109, 0.1);
+            border-radius: 5px;
+        }
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+            font-size: 13px;
+        }
+        .checkbox-label input {
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+
+    <div id="controls">
+        <h1>WoolyGraphs 3D</h1>
+
+        <div class="control-group">
+            <label for="pattern-select">Select Pattern:</label>
+            <select id="pattern-select">
+                <option value="">-- Select a pattern --</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label for="pattern-file">Or Load JSON File:</label>
+            <input type="file" id="pattern-file" accept=".json">
+        </div>
+
+        <div class="control-group">
+            <label for="spring-strength">Spring Strength: <span id="spring-val">0.01</span></label>
+            <input type="range" id="spring-strength" min="0" max="0.1" step="0.001" value="0.01">
+        </div>
+
+        <div class="control-group">
+            <label for="repulsion-strength">Repulsion: <span id="repulsion-val">50</span></label>
+            <input type="range" id="repulsion-strength" min="0" max="200" step="5" value="50">
+        </div>
+
+        <div class="control-group">
+            <label for="damping">Damping: <span id="damping-val">0.95</span></label>
+            <input type="range" id="damping" min="0.8" max="0.99" step="0.01" value="0.95">
+        </div>
+
+        <div class="control-group">
+            <label class="checkbox-label">
+                <input type="checkbox" id="show-yarn" checked> Show Yarn Tubes
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" id="show-nodes" checked> Show Nodes
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" id="auto-rotate"> Auto Rotate
+            </label>
+        </div>
+
+        <button id="reset-layout">Reset Layout</button>
+        <button id="run-simulation">Run Simulation (100 steps)</button>
+
+        <div class="stats">
+            <div>Nodes: <span id="node-count">0</span></div>
+            <div>Edges: <span id="edge-count">0</span></div>
+            <div>Energy: <span id="energy">0</span></div>
+        </div>
+
+        <div id="status">Ready. Load a pattern to begin.</div>
+    </div>
+
+    <!-- Use importmap for modern Three.js -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        console.log("Starting WoolyGraphs 3D Viewer...");
+
+        // Import Three.js modules
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        console.log("Three.js loaded successfully", THREE.REVISION);
+
+        // Make THREE available globally for debugging
+        window.THREE = THREE;
+        window.OrbitControls = OrbitControls;
+
+        // Import our custom modules
+        import { ElasticSheetLayout } from './layout-engine.js';
+        import { WoolyGraphViewer } from './viewer.js';
+
+        console.log("Custom modules loaded");
+
+        // Initialize the viewer
+        window.viewer = new WoolyGraphViewer('canvas-container', THREE, OrbitControls);
+        console.log("Viewer initialized");
+
+        // Setup controls
+        document.getElementById('pattern-select').addEventListener('change', handlePatternSelect);
+        document.getElementById('pattern-file').addEventListener('change', handleFileLoad);
+        document.getElementById('spring-strength').addEventListener('input', handleSpringStrength);
+        document.getElementById('repulsion-strength').addEventListener('input', handleRepulsionStrength);
+        document.getElementById('damping').addEventListener('input', handleDamping);
+        document.getElementById('show-yarn').addEventListener('change', handleShowYarn);
+        document.getElementById('show-nodes').addEventListener('change', handleShowNodes);
+        document.getElementById('auto-rotate').addEventListener('change', handleAutoRotate);
+        document.getElementById('reset-layout').addEventListener('click', handleResetLayout);
+        document.getElementById('run-simulation').addEventListener('click', handleRunSimulation);
+
+        // Load available patterns
+        loadAvailablePatterns();
+
+        function updateStatus(message) {
+            document.getElementById('status').textContent = message;
+            console.log("Status:", message);
+        }
+
+        async function loadAvailablePatterns() {
+            try {
+                const response = await fetch('data/patterns.json');
+                if (response.ok) {
+                    const patterns = await response.json();
+                    const select = document.getElementById('pattern-select');
+                    patterns.forEach(pattern => {
+                        const option = document.createElement('option');
+                        option.value = pattern.file;
+                        option.textContent = pattern.name;
+                        select.appendChild(option);
+                    });
+                    updateStatus("Patterns loaded. Select one to begin.");
+                }
+            } catch (error) {
+                console.log("No patterns.json found, using file upload only");
+                updateStatus("Load a JSON file to begin.");
+            }
+        }
+
+        async function handlePatternSelect(event) {
+            const filename = event.target.value;
+            if (!filename) return;
+
+            updateStatus(`Loading ${filename}...`);
+
+            try {
+                const response = await fetch(`data/${filename}`);
+                if (!response.ok) throw new Error(`Failed to load ${filename}`);
+
+                const graphData = await response.json();
+                console.log("Loaded graph data:", graphData);
+
+                window.viewer.loadGraph(graphData);
+                updateStatus(`Loaded ${graphData.metadata?.pattern || filename}`);
+            } catch (error) {
+                console.error("Error loading pattern:", error);
+                updateStatus(`Error: ${error.message}`);
+            }
+        }
+
+        function handleFileLoad(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            updateStatus(`Loading ${file.name}...`);
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const graphData = JSON.parse(e.target.result);
+                    console.log("Loaded graph data:", graphData);
+
+                    window.viewer.loadGraph(graphData);
+                    updateStatus(`Loaded ${graphData.metadata?.pattern || file.name}`);
+                } catch (error) {
+                    console.error("Error parsing JSON:", error);
+                    updateStatus(`Error: Invalid JSON file`);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function handleSpringStrength(event) {
+            const value = parseFloat(event.target.value);
+            document.getElementById('spring-val').textContent = value.toFixed(3);
+            window.viewer.setLayoutParameter('springStrength', value);
+        }
+
+        function handleRepulsionStrength(event) {
+            const value = parseFloat(event.target.value);
+            document.getElementById('repulsion-val').textContent = value;
+            window.viewer.setLayoutParameter('repulsionStrength', value);
+        }
+
+        function handleDamping(event) {
+            const value = parseFloat(event.target.value);
+            document.getElementById('damping-val').textContent = value.toFixed(2);
+            window.viewer.setLayoutParameter('damping', value);
+        }
+
+        function handleShowYarn(event) {
+            window.viewer.setShowYarn(event.target.checked);
+        }
+
+        function handleShowNodes(event) {
+            window.viewer.setShowNodes(event.target.checked);
+        }
+
+        function handleAutoRotate(event) {
+            window.viewer.setAutoRotate(event.target.checked);
+        }
+
+        function handleResetLayout() {
+            window.viewer.resetLayout();
+            updateStatus("Layout reset");
+        }
+
+        function handleRunSimulation() {
+            updateStatus("Running simulation...");
+            window.viewer.runSimulation(100);
+            setTimeout(() => updateStatus("Simulation complete"), 1000);
+        }
+
+        console.log("All event listeners attached, ready to go!");
+    </script>
+</body>
+</html>

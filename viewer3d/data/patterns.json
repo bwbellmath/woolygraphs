@@ -1,0 +1,22 @@
+[
+  {
+    "name": "Test Pattern (4x5)",
+    "file": "test_pattern.json"
+  },
+  {
+    "name": "Large Pattern (8x10)",
+    "file": "large_pattern.json"
+  },
+  {
+    "name": "Small Stockinette",
+    "file": "small_stockinette.json"
+  },
+  {
+    "name": "Small Stockinette (Optimized)",
+    "file": "small_stockinette_optimized.json"
+  },
+  {
+    "name": "Large Pattern (Optimized)",
+    "file": "large_pattern_optimized.json"
+  }
+]

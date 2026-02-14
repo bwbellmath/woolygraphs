@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WoolyGraphs 3D Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #0a0a0f;
+    color: #e0e0e0;
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  #canvas-container {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+  }
+
+  /* ── Sidebar Panel ── */
+  #sidebar {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    width: 280px;
+    background: rgba(15, 15, 25, 0.92);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 20px;
+    z-index: 10;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+  }
+  #sidebar h1 {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    background: linear-gradient(135deg, #00e5ff, #7c4dff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  #sidebar .subtitle {
+    font-size: 11px;
+    color: #888;
+    margin-bottom: 16px;
+  }
+
+  .section-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: #666;
+    margin: 16px 0 8px;
+  }
+
+  /* ── File Input ── */
+  #file-drop {
+    border: 2px dashed rgba(255,255,255,0.15);
+    border-radius: 8px;
+    padding: 14px;
+    text-align: center;
+    font-size: 12px;
+    color: #888;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    margin-bottom: 12px;
+  }
+  #file-drop:hover, #file-drop.dragover {
+    border-color: #00e5ff;
+    background: rgba(0, 229, 255, 0.05);
+  }
+  #file-drop input { display: none; }
+
+  /* ── Stats ── */
+  #stats {
+    font-size: 12px;
+    line-height: 1.8;
+    color: #aaa;
+  }
+  #stats span { color: #fff; font-weight: 600; }
+
+  /* ── Toggle / Slider Controls ── */
+  .control-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 6px 0;
+    font-size: 12px;
+  }
+
+  .toggle {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    background: #333;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+  .toggle.on { background: #00e5ff; }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+  .toggle.on::after { transform: translateX(16px); }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 120px;
+    height: 4px;
+    background: #333;
+    border-radius: 2px;
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    background: #00e5ff;
+    border-radius: 50%;
+    cursor: pointer;
+  }
+
+  /* ── Select dropdown ── */
+  select {
+    background: #1a1a2e;
+    color: #e0e0e0;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    outline: none;
+    cursor: pointer;
+    max-width: 130px;
+  }
+  select:focus { border-color: #00e5ff; }
+
+  /* ── Legend ── */
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    margin: 3px 0;
+  }
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* ── Hover info overlay ── */
+  #hover-info {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    background: rgba(15, 15, 25, 0.94);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 12px;
+    z-index: 10;
+    display: none;
+    min-width: 240px;
+    max-width: 320px;
+  }
+  #hover-header {
+    margin-bottom: 6px;
+    line-height: 1.6;
+  }
+  #hover-header span { color: #00e5ff; font-weight: 600; }
+  #hover-position {
+    font-size: 11px;
+    color: #888;
+    margin-bottom: 8px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+
+  /* ── Diagnostics table in hover ── */
+  .diag-table {
+    border-top: 1px solid rgba(255,255,255,0.1);
+    padding-top: 8px;
+    margin-top: 4px;
+  }
+  .diag-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #666;
+    margin-bottom: 6px;
+  }
+  .diag-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    line-height: 1.8;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+  .diag-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .diag-name {
+    flex: 1;
+    color: #aaa;
+  }
+  .diag-val {
+    text-align: right;
+    color: #e0e0e0;
+    min-width: 60px;
+  }
+  .diag-bar {
+    width: 40px;
+    height: 4px;
+    background: #222;
+    border-radius: 2px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .diag-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+  }
+  .diag-total {
+    border-top: 1px solid rgba(255,255,255,0.1);
+    padding-top: 4px;
+    margin-top: 4px;
+    font-weight: 600;
+  }
+  .diag-total .diag-name { color: #fff; }
+
+  /* Scrollbar */
+  #sidebar::-webkit-scrollbar { width: 4px; }
+  #sidebar::-webkit-scrollbar-track { background: transparent; }
+  #sidebar::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+
+<div id="sidebar">
+  <h1>WoolyGraphs</h1>
+  <div class="subtitle">3D Stitch Layout Viewer</div>
+
+  <div id="file-drop" onclick="document.getElementById('file-input').click()">
+    Drop a <b>.json</b> layout file here<br>or click to browse
+    <input type="file" id="file-input" accept=".json">
+  </div>
+
+  <div id="stats">
+    <div>Stitches: <span id="stat-nodes">&mdash;</span></div>
+    <div>Edges: <span id="stat-edges">&mdash;</span></div>
+    <div>Rows: <span id="stat-rows">&mdash;</span></div>
+  </div>
+
+  <div class="section-label">Display</div>
+
+  <div class="control-row">
+    <span>Show Nodes</span>
+    <div class="toggle on" id="toggle-nodes"></div>
+  </div>
+  <div class="control-row">
+    <span>Show Edges</span>
+    <div class="toggle on" id="toggle-edges"></div>
+  </div>
+  <div class="control-row">
+    <span>Show Normals</span>
+    <div class="toggle" id="toggle-normals"></div>
+  </div>
+  <div class="control-row">
+    <span>Show Yarn Path</span>
+    <div class="toggle" id="toggle-yarn"></div>
+  </div>
+  <div class="control-row">
+    <span>Show Mesh</span>
+    <div class="toggle" id="toggle-mesh"></div>
+  </div>
+  <div class="control-row">
+    <span>Auto Rotate</span>
+    <div class="toggle" id="toggle-rotate"></div>
+  </div>
+
+  <div class="section-label">Diagnostics</div>
+
+  <div class="control-row">
+    <span>Show Initial</span>
+    <div class="toggle" id="toggle-initial"></div>
+  </div>
+  <div class="control-row">
+    <span>Show Gradients</span>
+    <div class="toggle" id="toggle-gradients"></div>
+  </div>
+  <div class="control-row">
+    <span>Component</span>
+    <select id="select-component">
+      <option value="total">total</option>
+      <option value="edge">edge</option>
+      <option value="flatness">flatness</option>
+      <option value="angle">angle</option>
+      <option value="offset">offset</option>
+      <option value="coherence">coherence</option>
+      <option value="normal">normal</option>
+      <option value="repulsion">repulsion</option>
+    </select>
+  </div>
+  <div class="control-row">
+    <span>Arrow Scale</span>
+    <input type="range" id="slider-arrow-scale" min="0.5" max="50.0" step="0.5" value="10.0">
+    <span id="val-arrow-scale" style="font-size:11px; width:30px; text-align:right">10.0</span>
+  </div>
+
+  <div class="section-label">Node Size</div>
+  <div class="control-row">
+    <input type="range" id="slider-node-size" min="0.1" max="2.0" step="0.05" value="0.5">
+    <span id="val-node-size" style="font-size:11px; width:30px; text-align:right">0.5</span>
+  </div>
+
+  <div class="section-label">Legend</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#00e5ff"></div> cast-on (co)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#76ff03"></div> knit (k)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#e040fb"></div> purl (p)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ffab00"></div> yarn-over (yo)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ff1744"></div> bind-off (bo)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#448aff"></div> decrease (k2tog/ssk)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#69f0ae"></div> increase (kfb)</div>
+
+  <div class="section-label">Edge Colors</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#00e5ff"></div> horizontal</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ffd740"></div> vertical</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ff6e40"></div> yarn path</div>
+</div>
+
+<div id="hover-info">
+  <div id="hover-header">
+    Stitch <span id="hover-id">&mdash;</span> &nbsp;|&nbsp;
+    Type: <span id="hover-type">&mdash;</span> &nbsp;|&nbsp;
+    Row <span id="hover-row">&mdash;</span>, Col <span id="hover-col">&mdash;</span>
+  </div>
+  <div id="hover-position"></div>
+  <div id="hover-diagnostics"></div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ── Color palette ──
+const STITCH_COLORS = {
+  co:    0x00e5ff,
+  k:     0x76ff03,
+  p:     0xe040fb,
+  yo:    0xffab00,
+  bo:    0xff1744,
+  k2tog: 0x448aff,
+  ssk:   0x448aff,
+  p2tog: 0x448aff,
+  k3tog: 0x448aff,
+  kfb:   0x69f0ae,
+  kfb3:  0x69f0ae,
+  kfb4:  0x69f0ae,
+  kfb5:  0x69f0ae,
+};
+const DEFAULT_COLOR = 0xaaaaaa;
+const H_EDGE_COLOR  = 0x00e5ff;
+const V_EDGE_COLOR  = 0xffd740;
+const YARN_COLOR    = 0xff6e40;
+const NORMAL_COLOR  = 0xff4081;
+
+// Component colors for gradient arrows
+const COMPONENT_COLORS = {
+  total:      0xffffff,
+  edge:       0x00e5ff,
+  flatness:   0x76ff03,
+  angle:      0x40c4ff,
+  offset:     0xffd740,
+  coherence:  0xff4081,
+  normal:     0xe040fb,
+  repulsion:  0xff1744,
+};
+const COMPONENT_CSS = {};
+for (const [k, v] of Object.entries(COMPONENT_COLORS)) {
+  COMPONENT_CSS[k] = '#' + v.toString(16).padStart(6, '0');
+}
+
+// ── Scene setup ──
+const container = document.getElementById('canvas-container');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a0f);
+scene.fog = new THREE.FogExp2(0x0a0a0f, 0.008);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 500);
+camera.position.set(30, 25, 40);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 2;
+controls.maxDistance = 200;
+
+// Lights
+const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+scene.add(ambient);
+
+const dir1 = new THREE.DirectionalLight(0xffffff, 0.8);
+dir1.position.set(20, 30, 20);
+scene.add(dir1);
+
+const dir2 = new THREE.DirectionalLight(0x7c4dff, 0.3);
+dir2.position.set(-15, 10, -10);
+scene.add(dir2);
+
+// Subtle grid
+const grid = new THREE.GridHelper(100, 40, 0x222233, 0x111122);
+grid.material.opacity = 0.3;
+grid.material.transparent = true;
+scene.add(grid);
+
+// ── Groups ──
+const nodeGroup        = new THREE.Group();
+const edgeGroup        = new THREE.Group();
+const normalGroup      = new THREE.Group();
+const yarnGroup        = new THREE.Group();
+const meshGroup        = new THREE.Group();
+const initialNodeGroup = new THREE.Group();
+const initialEdgeGroup = new THREE.Group();
+const gradientGroup    = new THREE.Group();
+scene.add(nodeGroup, edgeGroup, normalGroup, yarnGroup, meshGroup);
+scene.add(initialNodeGroup, initialEdgeGroup, gradientGroup);
+
+// ── State ──
+let graphData = null;
+let nodeMeshes = [];
+let nodeSize = 0.5;
+let arrowScale = 10.0;
+let selectedComponent = 'total';
+
+// ── Coordinate transform: model (x, y, z) -> viewer (x, z, -y) ──
+function toViewer(p) {
+  return new THREE.Vector3(p.x, p.z, -p.y);
+}
+function gradToViewer(g) {
+  // Transform gradient vector from model space to viewer space
+  return new THREE.Vector3(g.x, g.z, -g.y);
+}
+
+// ── Raycasting ──
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let hoveredMesh = null;
+
+// ── Build scene from JSON data ──
+function loadGraph(data) {
+  graphData = data;
+
+  // Clear all groups
+  [nodeGroup, edgeGroup, normalGroup, yarnGroup, meshGroup,
+   initialNodeGroup, initialEdgeGroup, gradientGroup].forEach(g => {
+    while (g.children.length) {
+      const c = g.children[0];
+      c.geometry?.dispose();
+      c.material?.dispose();
+      g.remove(c);
+    }
+  });
+  nodeMeshes = [];
+
+  // Stats
+  const rows = new Set(data.nodes.map(n => n.row));
+  document.getElementById('stat-nodes').textContent = data.nodes.length;
+  document.getElementById('stat-edges').textContent = data.edges.length;
+  document.getElementById('stat-rows').textContent = rows.size;
+
+  buildNodes(data);
+  buildEdges(data);
+  buildNormals(data);
+  buildYarnPath(data);
+  buildMesh(data);
+  buildInitialLayout(data);
+  buildGradientArrows(data);
+
+  // Apply current toggle state
+  applyToggles();
+
+  // Center camera
+  centerCamera(data);
+}
+
+function buildNodes(data) {
+  const geo = new THREE.SphereGeometry(1, 24, 16);
+
+  for (const node of data.nodes) {
+    const color = STITCH_COLORS[node.stitch_type] || DEFAULT_COLOR;
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.35,
+      metalness: 0.15,
+      emissive: color,
+      emissiveIntensity: 0.15,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(toViewer(node.position));
+    mesh.scale.setScalar(nodeSize);
+    mesh.userData = node;
+    nodeGroup.add(mesh);
+    nodeMeshes.push(mesh);
+  }
+}
+
+function buildEdges(data) {
+  const posMap = {};
+  for (const n of data.nodes) {
+    posMap[n.id] = toViewer(n.position);
+  }
+
+  for (const edge of data.edges) {
+    const p1 = posMap[edge.source];
+    const p2 = posMap[edge.target];
+    if (!p1 || !p2) continue;
+
+    const color = edge.orientation === 'h' ? H_EDGE_COLOR : V_EDGE_COLOR;
+    const geo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+    const mat = new THREE.LineBasicMaterial({ color, opacity: 0.6, transparent: true });
+    edgeGroup.add(new THREE.Line(geo, mat));
+  }
+}
+
+function buildNormals(data) {
+  const len = 1.5;
+  for (const node of data.nodes) {
+    if (!node.normal) continue;
+    const p = toViewer(node.position);
+    const n = gradToViewer(node.normal).normalize();
+    const end = p.clone().add(n.multiplyScalar(len));
+
+    const geo = new THREE.BufferGeometry().setFromPoints([p, end]);
+    const mat = new THREE.LineBasicMaterial({ color: NORMAL_COLOR, opacity: 0.5, transparent: true });
+    normalGroup.add(new THREE.Line(geo, mat));
+  }
+}
+
+function buildYarnPath(data) {
+  if (!data.yarn_path || data.yarn_path.length < 2) return;
+
+  const posMap = {};
+  for (const n of data.nodes) {
+    posMap[n.id] = toViewer(n.position);
+  }
+
+  const points = data.yarn_path.map(id => posMap[id]).filter(Boolean);
+  if (points.length < 2) return;
+
+  const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal', 0.5);
+  const tubeGeo = new THREE.TubeGeometry(curve, points.length * 8, 0.15, 8, false);
+  const tubeMat = new THREE.MeshStandardMaterial({
+    color: YARN_COLOR,
+    roughness: 0.5,
+    metalness: 0.1,
+    emissive: YARN_COLOR,
+    emissiveIntensity: 0.1,
+  });
+  yarnGroup.add(new THREE.Mesh(tubeGeo, tubeMat));
+}
+
+function buildMesh(data) {
+  const posMap = {};
+  const adjH = {};
+  const adjV = {};
+
+  for (const n of data.nodes) {
+    posMap[n.id] = toViewer(n.position);
+    adjH[n.id] = new Set();
+    adjV[n.id] = new Set();
+  }
+
+  for (const e of data.edges) {
+    if (e.orientation === 'h') {
+      adjH[e.source].add(e.target);
+      adjH[e.target].add(e.source);
+    } else {
+      adjV[e.source].add(e.target);
+      adjV[e.target].add(e.source);
+    }
+  }
+
+  const triangles = [];
+  const seenQuads = new Set();
+
+  for (const n of data.nodes) {
+    const i = n.id;
+    for (const hNbr of adjH[i]) {
+      for (const vNbr of adjV[i]) {
+        for (const diag of adjH[vNbr]) {
+          if (diag !== i && adjV[hNbr].has(diag)) {
+            const quad = [i, hNbr, diag, vNbr].sort((a,b) => a-b).join(',');
+            if (!seenQuads.has(quad)) {
+              seenQuads.add(quad);
+              triangles.push(i, hNbr, vNbr);
+              triangles.push(hNbr, diag, vNbr);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (triangles.length === 0) return;
+
+  const vertices = [];
+  for (const n of data.nodes) {
+    const p = posMap[n.id];
+    vertices.push(p.x, p.y, p.z);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geo.setIndex(triangles);
+  geo.computeVertexNormals();
+
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x4488ff,
+    roughness: 0.6,
+    metalness: 0.05,
+    transparent: true,
+    opacity: 0.2,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  meshGroup.add(new THREE.Mesh(geo, mat));
+
+  const wireMat = new THREE.MeshBasicMaterial({
+    color: 0x4488ff,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.08,
+  });
+  meshGroup.add(new THREE.Mesh(geo.clone(), wireMat));
+}
+
+// ── Initial layout overlay ──
+function buildInitialLayout(data) {
+  // Clear
+  while (initialNodeGroup.children.length) {
+    const c = initialNodeGroup.children[0];
+    c.geometry?.dispose();
+    c.material?.dispose();
+    initialNodeGroup.remove(c);
+  }
+  while (initialEdgeGroup.children.length) {
+    const c = initialEdgeGroup.children[0];
+    c.geometry?.dispose();
+    c.material?.dispose();
+    initialEdgeGroup.remove(c);
+  }
+
+  if (!data.initial_positions) return;
+
+  const geo = new THREE.SphereGeometry(1, 16, 12);
+  const ghostMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.5,
+    metalness: 0.0,
+    transparent: true,
+    opacity: 0.25,
+    emissive: 0xffffff,
+    emissiveIntensity: 0.1,
+  });
+
+  // Ghost nodes at initial positions
+  for (let i = 0; i < data.initial_positions.length; i++) {
+    const mesh = new THREE.Mesh(geo, ghostMat.clone());
+    mesh.position.copy(toViewer(data.initial_positions[i]));
+    mesh.scale.setScalar(nodeSize * 0.7);
+    initialNodeGroup.add(mesh);
+  }
+
+  // Ghost edges connecting initial positions
+  const posMap = {};
+  for (let i = 0; i < data.initial_positions.length; i++) {
+    posMap[i] = toViewer(data.initial_positions[i]);
+  }
+
+  for (const edge of data.edges) {
+    const p1 = posMap[edge.source];
+    const p2 = posMap[edge.target];
+    if (!p1 || !p2) continue;
+
+    const edgeGeo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+    const mat = new THREE.LineBasicMaterial({
+      color: 0xffffff,
+      opacity: 0.15,
+      transparent: true,
+    });
+    initialEdgeGroup.add(new THREE.Line(edgeGeo, mat));
+  }
+}
+
+// ── Gradient arrows ──
+function buildGradientArrows(data) {
+  // Clear
+  while (gradientGroup.children.length) {
+    const c = gradientGroup.children[0];
+    // ArrowHelper is a group with children
+    c.traverse(child => {
+      child.geometry?.dispose();
+      child.material?.dispose();
+    });
+    gradientGroup.remove(c);
+  }
+
+  if (!data.diagnostics) return;
+
+  const comp = selectedComponent;
+  const info = data.diagnostics[comp];
+  if (!info || !info.gradients) return;
+
+  const color = COMPONENT_COLORS[comp] || 0xffffff;
+
+  for (let i = 0; i < data.nodes.length; i++) {
+    const g = info.gradients[i];
+    const mag = Math.sqrt(g.x * g.x + g.y * g.y + g.z * g.z);
+    if (mag < 1e-8) continue;
+
+    const p = toViewer(data.nodes[i].position);
+    // Show negative gradient (force direction / optimizer movement)
+    const forceDir = gradToViewer({x: -g.x, y: -g.y, z: -g.z}).normalize();
+    const len = mag * arrowScale;
+    const headLen = Math.min(len * 0.3, 1.0);
+    const headWidth = Math.min(headLen * 0.5, 0.5);
+
+    const arrow = new THREE.ArrowHelper(forceDir, p, len, color, headLen, headWidth);
+    gradientGroup.add(arrow);
+  }
+}
+
+function centerCamera(data) {
+  const box = new THREE.Box3();
+  for (const n of data.nodes) {
+    box.expandByPoint(toViewer(n.position));
+  }
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  const size = box.getSize(new THREE.Vector3()).length();
+
+  controls.target.copy(center);
+  camera.position.copy(center).add(new THREE.Vector3(size * 0.8, size * 0.6, size * 0.8));
+  controls.update();
+}
+
+// ── Toggles ──
+const toggleState = {
+  nodes: true,
+  edges: true,
+  normals: false,
+  yarn: false,
+  mesh: false,
+  rotate: false,
+  initial: false,
+  gradients: false,
+};
+
+function applyToggles() {
+  nodeGroup.visible        = toggleState.nodes;
+  edgeGroup.visible        = toggleState.edges;
+  normalGroup.visible      = toggleState.normals;
+  yarnGroup.visible        = toggleState.yarn;
+  meshGroup.visible        = toggleState.mesh;
+  initialNodeGroup.visible = toggleState.initial;
+  initialEdgeGroup.visible = toggleState.initial;
+  gradientGroup.visible    = toggleState.gradients;
+  controls.autoRotate      = toggleState.rotate;
+  controls.autoRotateSpeed = 1.5;
+}
+
+function setupToggle(id, key) {
+  const el = document.getElementById(id);
+  el.classList.toggle('on', toggleState[key]);
+  el.addEventListener('click', () => {
+    toggleState[key] = !toggleState[key];
+    el.classList.toggle('on', toggleState[key]);
+    applyToggles();
+  });
+}
+
+setupToggle('toggle-nodes',     'nodes');
+setupToggle('toggle-edges',     'edges');
+setupToggle('toggle-normals',   'normals');
+setupToggle('toggle-yarn',      'yarn');
+setupToggle('toggle-mesh',      'mesh');
+setupToggle('toggle-rotate',    'rotate');
+setupToggle('toggle-initial',   'initial');
+setupToggle('toggle-gradients', 'gradients');
+
+// Node size slider
+const sizeSlider = document.getElementById('slider-node-size');
+const sizeVal    = document.getElementById('val-node-size');
+sizeSlider.addEventListener('input', () => {
+  nodeSize = parseFloat(sizeSlider.value);
+  sizeVal.textContent = nodeSize.toFixed(2);
+  for (const m of nodeMeshes) {
+    m.scale.setScalar(nodeSize);
+  }
+  // Also scale initial ghost nodes
+  for (const m of initialNodeGroup.children) {
+    m.scale.setScalar(nodeSize * 0.7);
+  }
+});
+
+// Arrow scale slider
+const arrowSlider = document.getElementById('slider-arrow-scale');
+const arrowVal    = document.getElementById('val-arrow-scale');
+arrowSlider.addEventListener('input', () => {
+  arrowScale = parseFloat(arrowSlider.value);
+  arrowVal.textContent = arrowScale.toFixed(1);
+  if (graphData) buildGradientArrows(graphData);
+  applyToggles();
+});
+
+// Component selector
+const compSelect = document.getElementById('select-component');
+compSelect.addEventListener('change', () => {
+  selectedComponent = compSelect.value;
+  if (graphData) buildGradientArrows(graphData);
+  applyToggles();
+});
+
+// ── File loading ──
+const fileDrop  = document.getElementById('file-drop');
+const fileInput = document.getElementById('file-input');
+
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) loadFile(file);
+});
+
+fileDrop.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  fileDrop.classList.add('dragover');
+});
+fileDrop.addEventListener('dragleave', () => fileDrop.classList.remove('dragover'));
+fileDrop.addEventListener('drop', (e) => {
+  e.preventDefault();
+  fileDrop.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) loadFile(file);
+});
+
+function loadFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      loadGraph(data);
+      fileDrop.innerHTML = `Loaded: <b>${file.name}</b><br>(click or drop to change)`;
+    } catch (err) {
+      fileDrop.innerHTML = `Error: ${err.message}<br>Drop a valid .json file`;
+    }
+  };
+  reader.readAsText(file);
+}
+
+// Also try loading from URL param: ?file=path/to/file.json
+const urlParams = new URLSearchParams(window.location.search);
+const fileParam = urlParams.get('file');
+if (fileParam) {
+  fetch(fileParam)
+    .then(r => r.json())
+    .then(data => {
+      loadGraph(data);
+      fileDrop.innerHTML = `Loaded: <b>${fileParam.split('/').pop()}</b><br>(click or drop to change)`;
+    })
+    .catch(err => console.warn('Could not load', fileParam, err));
+}
+
+// ── Raycasting / hover with diagnostics ──
+const hoverInfo = document.getElementById('hover-info');
+
+renderer.domElement.addEventListener('mousemove', (e) => {
+  mouse.x =  (e.clientX / window.innerWidth)  * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+});
+
+function updateHover() {
+  if (!graphData || nodeMeshes.length === 0) {
+    hoverInfo.style.display = 'none';
+    return;
+  }
+
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(nodeMeshes);
+
+  if (hoveredMesh) {
+    hoveredMesh.material.emissiveIntensity = 0.15;
+    hoveredMesh.scale.setScalar(nodeSize);
+    hoveredMesh = null;
+  }
+
+  if (intersects.length > 0) {
+    const mesh = intersects[0].object;
+    mesh.material.emissiveIntensity = 0.6;
+    mesh.scale.setScalar(nodeSize * 1.4);
+    hoveredMesh = mesh;
+
+    const d = mesh.userData;
+    document.getElementById('hover-id').textContent = d.id;
+    document.getElementById('hover-type').textContent = d.stitch_type;
+    document.getElementById('hover-row').textContent = d.row;
+    document.getElementById('hover-col').textContent = d.col;
+
+    // Position info
+    const posEl = document.getElementById('hover-position');
+    const p = d.position;
+    posEl.textContent = `pos: (${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)})`;
+
+    // Diagnostics breakdown
+    updateDiagnosticsPanel(d.id);
+
+    hoverInfo.style.display = 'block';
+  } else {
+    hoverInfo.style.display = 'none';
+  }
+}
+
+function updateDiagnosticsPanel(nodeId) {
+  const diagPanel = document.getElementById('hover-diagnostics');
+
+  if (!graphData?.diagnostics) {
+    diagPanel.innerHTML = '';
+    return;
+  }
+
+  const components = ['edge', 'flatness', 'angle', 'offset', 'coherence', 'normal', 'repulsion'];
+  let maxMag = 0;
+
+  // Compute magnitudes for all components
+  const mags = {};
+  for (const comp of components) {
+    const info = graphData.diagnostics[comp];
+    if (!info || !info.gradients || !info.gradients[nodeId]) {
+      mags[comp] = 0;
+      continue;
+    }
+    const g = info.gradients[nodeId];
+    mags[comp] = Math.sqrt(g.x * g.x + g.y * g.y + g.z * g.z);
+    if (mags[comp] > maxMag) maxMag = mags[comp];
+  }
+
+  // Total
+  const totalInfo = graphData.diagnostics.total;
+  let totalMag = 0;
+  if (totalInfo && totalInfo.gradients && totalInfo.gradients[nodeId]) {
+    const g = totalInfo.gradients[nodeId];
+    totalMag = Math.sqrt(g.x * g.x + g.y * g.y + g.z * g.z);
+  }
+  if (totalMag > maxMag) maxMag = totalMag;
+
+  let html = '<div class="diag-table">';
+  html += '<div class="diag-label">Gradient magnitude ||&nabla;L||</div>';
+
+  for (const comp of components) {
+    const mag = mags[comp];
+    const color = COMPONENT_CSS[comp] || '#aaa';
+    const lam = graphData.diagnostics[comp]?.lambda ?? 0;
+    const barPct = maxMag > 0 ? (mag / maxMag * 100) : 0;
+
+    html += `<div class="diag-row">
+      <span class="diag-dot" style="background:${color}"></span>
+      <span class="diag-name">${comp}</span>
+      <span class="diag-bar"><span class="diag-bar-fill" style="width:${barPct}%;background:${color}"></span></span>
+      <span class="diag-val">${mag < 1e-6 ? '0' : mag.toFixed(4)}</span>
+    </div>`;
+  }
+
+  // Total row
+  const totalBarPct = maxMag > 0 ? (totalMag / maxMag * 100) : 0;
+  html += `<div class="diag-row diag-total">
+    <span class="diag-dot" style="background:${COMPONENT_CSS.total}"></span>
+    <span class="diag-name">TOTAL</span>
+    <span class="diag-bar"><span class="diag-bar-fill" style="width:${totalBarPct}%;background:${COMPONENT_CSS.total}"></span></span>
+    <span class="diag-val">${totalMag < 1e-6 ? '0' : totalMag.toFixed(4)}</span>
+  </div>`;
+
+  html += '</div>';
+  diagPanel.innerHTML = html;
+}
+
+// ── Resize ──
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ── Animate ──
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  updateHover();
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
