@@ -1,0 +1,30 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\title{Related Work and Positioning}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+Recent work shows that the broad idea of modeling knitting with graphs and with knot-theoretic objects is no longer empty territory, but the precise niche of a compositional, finite, stitch-to-crossing framework still appears open. The most directly relevant prior work for our intended paper is \emph{Wooly Graphs}, which develops a formal graph-theoretic model of knitting with one vertex per stitch and multiple graph views, including a directed multigraph that tracks the yarn path through the fabric \cite{gray2024wooly}. In particular, this paper already occupies much of the conceptual space around a ``stitch graph'' and a ``yarn graph'': it treats sequential yarn adjacency and stitch-holding relations as edges of a stitch-level graph, and then refines this to a yarn-level multigraph capable of following the continuous strand through the knitted object \cite{gray2024wooly}. For our project, this means that a claim of novelty should not rest on the mere existence of stitch-level or yarn-level graph models for knitting.
+
+A second key neighboring line of work is \emph{TopoKnit}, which introduces a process-oriented topological data structure for weft-knitted textiles at the yarn scale \cite{kapllani2021topoknit}. TopoKnit is especially important because it moves beyond stitch adjacency and treats yarn topology in a way that is much closer to a crossing-level representation: its primitive objects are local yarn intertwinings and the connecting yarn segments between them, together with algorithms for efficient topological queries \cite{kapllani2021topoknit}. This is the clearest prior-art analogue of what we have been informally calling a ``crossing chart.'' The main distinction suggested by the current literature is therefore not that crossing-level structures are completely absent, but that there is still room for a more explicitly knot-diagrammatic representation---for example, a \emph{yarn crossing presentation} whose local primitives are crossings with one over-arc and two under-arcs, designed specifically so that knot invariants and coloring systems can be generated automatically.
+
+There is also a growing knot-theoretic literature on knitted textiles, especially in the periodic setting. Markande and Matsumoto introduced a topological framework for 2-periodic knitted stitches using tangles on tori and an algebra of stitch-composition moves \cite{markande2020knotty}. More recently, Kuzbary, Markande, Matsumoto, and Pritchard studied two-periodic weft-knitted textiles via links in the thickened torus, giving criteria for realizability by weft knitting and showing that the associated textile links correspond to ribbon knots and links in Euclidean three-space \cite{kuzbary2025study}. These papers strongly support the view that knitting can be formalized in knot-theoretic terms, but they focus on periodic textile motifs rather than finite knitted objects closed by passing the terminal yarn end through the final loop and joining it to the cast-on end.
+
+Accordingly, the most promising technical contribution for the present project is not the isolated observation that knitted objects admit graph-like models, but a \emph{compositional bridge} between several levels of abstraction. One plausible formulation is a pipeline from a finite library of stitch primitives to (i) a stitch graph, (ii) a yarn graph, and then (iii) a yarn crossing presentation from which a knot diagram, Fox coloring system, or determinant computation can be derived. The contribution would then be a collection of correctness theorems: that these local representations compose consistently; that the resulting object tracks a single strand when the knitting rules require it; and that after the terminal closure operation, one obtains a well-defined finite knot or link. In this framing, the novelty lies in algorithmic compositional semantics, invariant extraction, and correctness proofs for finite knitted constructions, rather than in a general claim that graphs or knot theory apply to knitting.
+
+This positioning also suggests an appropriate venue strategy. A submission aimed at an algorithms venue such as ESA should emphasize formal object models, algorithms for composition and invariant extraction, complexity results, and proofs of correctness. A submission aimed at a mathematics-of-fiber-arts venue could instead foreground the relationship to textile topology, swatches, and finite closures. In either case, the literature indicates that the paper should explicitly acknowledge existing stitch-level graph models, yarn-level topology data structures, and periodic knot-theoretic textile models, while presenting the new contribution as a finite, compositional, algorithmic framework that connects these levels in a way not yet cleanly isolated in the published record.
+
+\bibliographystyle{plain}
+\bibliography{knitting_related_work}
+
+\end{document}

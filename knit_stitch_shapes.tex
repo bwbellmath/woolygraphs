@@ -1,0 +1,293 @@
+\documentclass[11pt]{article}
+\usepackage[margin=0.5in]{geometry}
+\usepackage{tikz}
+\usetikzlibrary{calc, decorations.markings, arrows.meta}
+
+\begin{document}
+
+% ============================================================
+% Parametric Knit Stitch Geometry
+% ============================================================
+%
+% A single knit stitch has this shape (viewed from front):
+%
+%          ___...---arc---...___
+%         /                     \
+%        / (tangent point)       \ (tangent point)
+%       |                         |
+%  left |   straight legs         | right
+%  leg  |                         | leg
+%       |                         |
+%        \                       /
+%         \___.---sweep---.___/   <-- lower arc, connects to next stitch
+%
+% The yarn path through a row visits each stitch left-to-right (or
+% right-to-left on alternate rows), with the lower sweep connecting
+% consecutive stitches.
+%
+% The legs of row N pass THROUGH the upper arc of the stitch in
+% row N-1, creating the interlocking structure.
+
+\begin{tikzpicture}[
+  % === Controllable parameters ===
+  % Horizontal spacing between stitch centers
+  declare function={stitch_width=1.2;},
+  % Half-width of the ellipse at the top of the stitch
+  declare function={arc_rx=0.45;},
+  % Half-height of the ellipse at the top of the stitch
+  declare function={arc_ry=0.2;},
+  % Length of the straight leg from base to tangent point
+  declare function={leg_length=0.6;},
+  % Gap between bottom of leg and top of lower arc
+  declare function={leg_base_gap=0.05;},
+  % Half-width of the lower connecting sweep
+  declare function={sweep_rx=0.55;},
+  % Half-height of the lower connecting sweep
+  declare function={sweep_ry=0.15;},
+  % Vertical spacing between rows (center to center)
+  declare function={row_height=1.4;},
+  % Yarn thickness
+  yarn/.style={line width=1.2pt, draw=orange!80!black},
+  yarn over/.style={yarn, draw=orange!80!black},
+  yarn under/.style={yarn, draw=orange!80!black, opacity=0.3},
+  % For crossing gaps (white overprint to show under-strand)
+  crossing gap/.style={line width=3pt, draw=white},
+]
+
+% ---- Helper: draw a single knit stitch at position (#1, #2) ----
+% #1 = x center of stitch
+% #2 = y center (where the upper arc sits)
+%
+% The stitch consists of:
+%   - Upper arc: top half of ellipse centered at (#1, #2)
+%   - Left leg: from tangent point down to (#1 - arc_rx, #2 - leg_length)
+%   - Right leg: from tangent point down to (#1 + arc_rx, #2 - leg_length)
+
+% ==================================================================
+% SHAPE 1: Cast-on tail
+% ==================================================================
+% A free end trailing from the first stitch
+\node[anchor=east, font=\small\bfseries] at (-1.5, 0) {1. Cast-on tail};
+\draw[yarn] (-0.8, -0.3) -- (0, 0);
+
+% ==================================================================
+% SHAPE 2: Cast-on loop (initial stitch on needle)
+% ==================================================================
+% A simple loop -- the seed for the first row
+\node[anchor=east, font=\small\bfseries] at (-1.5, -1.8) {2. Cast-on loop};
+\begin{scope}[shift={(0, -1.8)}]
+  % Upper arc
+  \draw[yarn] (-0.45, 0)
+    arc[start angle=180, end angle=0, x radius=0.45, y radius=0.2];
+  % Left leg down
+  \draw[yarn] (-0.45, 0) -- (-0.45, -0.6);
+  % Right leg down
+  \draw[yarn] (0.45, 0) -- (0.45, -0.6);
+\end{scope}
+
+% ==================================================================
+% SHAPE 3: Knit stitch body (the core shape)
+% ==================================================================
+% Two straight legs tangent to an ellipse, with the upper arc
+\node[anchor=east, font=\small\bfseries] at (-1.5, -3.6) {3. Knit stitch};
+\begin{scope}[shift={(0, -3.6)}]
+  % Upper ellipse arc (top half)
+  \draw[yarn] (-0.45, 0)
+    arc[start angle=180, end angle=0, x radius=0.45, y radius=0.2];
+  % Left leg: straight line from tangent point downward
+  \draw[yarn] (-0.45, 0) -- (-0.45, -0.6);
+  % Right leg: straight line from tangent point downward
+  \draw[yarn] (0.45, 0) -- (0.45, -0.6);
+
+  % Annotation: dimensions
+  \draw[<->, thin, gray] (-0.45, 0.35) -- (0.45, 0.35)
+    node[midway, above, font=\tiny] {$2 r_x$};
+  \draw[<->, thin, gray] (0.7, 0) -- (0.7, -0.6)
+    node[midway, right, font=\tiny] {$\ell$};
+  \draw[<->, thin, gray] (-0.15, 0) -- (0.15, 0.2)
+    node[midway, above left, font=\tiny] {$r_y$};
+\end{scope}
+
+% ==================================================================
+% SHAPE 4: Inter-stitch sweep (lower arc connecting stitches)
+% ==================================================================
+% After the right leg descends, the yarn swoops to become
+% the left leg of the next stitch via a lower elliptical arc
+\node[anchor=east, font=\small\bfseries] at (-1.5, -5.4) {4. Inter-stitch};
+\begin{scope}[shift={(0, -5.4)}]
+  % First stitch right leg comes down to here
+  \fill[black] (0.45, 0) circle(1.5pt);
+  % Lower sweep arc connecting to next stitch's left leg
+  \draw[yarn] (0.45, 0)
+    arc[start angle=180, end angle=0, x radius=0.15, y radius=0.15];
+  % Next stitch's left leg starts here
+  \fill[black] (0.75, 0) circle(1.5pt);
+
+  % Labels
+  \node[font=\tiny, below] at (0.45, -0.2) {R leg};
+  \node[font=\tiny, below] at (0.75, -0.2) {L leg};
+\end{scope}
+
+% ==================================================================
+% SHAPE 5: Row-end turn (Bezier U-turn)
+% ==================================================================
+% At the end of a row, yarn wraps around and starts next row
+\node[anchor=east, font=\small\bfseries] at (-1.5, -7.0) {5. Row-end turn};
+\begin{scope}[shift={(0, -7.0)}]
+  % Last stitch of row ends here
+  \fill[black] (0, 0) circle(1.5pt);
+  % Bezier curve wrapping around
+  \draw[yarn] (0, 0)
+    .. controls (0.8, 0) and (0.8, -1.4) .. (0, -1.4);
+  % First stitch of next row starts here
+  \fill[black] (0, -1.4) circle(1.5pt);
+
+  \node[font=\tiny, right] at (0.85, -0.7) {selvage};
+\end{scope}
+
+% ==================================================================
+% SHAPE 6: Interlocking (new row through old row)
+% ==================================================================
+% The legs of the new stitch pass through the old stitch's loop
+\node[anchor=east, font=\small\bfseries] at (-1.5, -9.5) {6. Interlocking};
+\begin{scope}[shift={(0, -9.5)}]
+  % OLD stitch (row below) -- upper arc
+  \draw[yarn, blue!60!black] (-0.45, 0)
+    arc[start angle=180, end angle=0, x radius=0.45, y radius=0.2];
+  % Old stitch legs
+  \draw[yarn, blue!60!black] (-0.45, 0) -- (-0.45, -0.6);
+  \draw[yarn, blue!60!black] (0.45, 0) -- (0.45, -0.6);
+
+  % NEW stitch (row above) -- its legs pass THROUGH the old loop
+  % Left leg of new stitch (comes from above, goes under old arc)
+  % Draw crossing gap on old stitch where new leg crosses it
+
+  % New stitch upper arc (sits above old stitch)
+  \draw[yarn, red!60!black] (-0.35, 0.9)
+    arc[start angle=180, end angle=0, x radius=0.35, y radius=0.18];
+
+  % New left leg: above crossing, then gap, then below
+  % Over segment (above old arc)
+  \draw[yarn, red!60!black] (-0.35, 0.9) -- (-0.35, 0.25);
+  % Gap in old stitch arc (white overprint)
+  \draw[crossing gap] (-0.35, 0.12) -- (-0.35, -0.05);
+  % Under segment (below old arc, going to bottom)
+  \draw[yarn, red!60!black] (-0.35, 0.12) -- (-0.35, -0.4);
+
+  % New right leg
+  \draw[yarn, red!60!black] (0.35, 0.9) -- (0.35, 0.25);
+  \draw[crossing gap] (0.35, 0.12) -- (0.35, -0.05);
+  \draw[yarn, red!60!black] (0.35, 0.12) -- (0.35, -0.4);
+
+  % Labels
+  \node[font=\tiny, blue!60!black, right] at (0.5, -0.3) {old loop};
+  \node[font=\tiny, red!60!black, right] at (0.5, 0.6) {new stitch};
+
+  % Crossing markers
+  \node[font=\tiny, fill=green!20, draw=green!60!black, circle, inner sep=1pt]
+    at (-0.35, 0.1) {+};
+  \node[font=\tiny, fill=green!20, draw=green!60!black, circle, inner sep=1pt]
+    at (0.35, 0.1) {+};
+\end{scope}
+
+% ==================================================================
+% SHAPE 7: Bind-off / final tail
+% ==================================================================
+\node[anchor=east, font=\small\bfseries] at (-1.5, -11.5) {7. Final tail};
+\begin{scope}[shift={(0, -11.5)}]
+  % Last loop
+  \draw[yarn] (-0.45, 0)
+    arc[start angle=180, end angle=0, x radius=0.45, y radius=0.2];
+  \draw[yarn] (-0.45, 0) -- (-0.45, -0.4);
+  \draw[yarn] (0.45, 0) -- (0.45, -0.4);
+  % Tail going through last loop and trailing off
+  \draw[yarn, dashed] (0, 0.2) -- (0, 0.8)
+    node[above, font=\tiny] {through last loop};
+\end{scope}
+
+% ==================================================================
+% COMBINED: A complete row of 3 knit stitches
+% ==================================================================
+\begin{scope}[shift={(5, 0)}]
+  \node[anchor=south west, font=\small\bfseries] at (-0.5, 1.2)
+    {Combined: 3 stitches with cast-on tail};
+
+  % Cast-on tail
+  \draw[yarn] (-1.0, -0.6) -- (-0.45, -0.6);
+
+  % === Stitch 0 (x=0) ===
+  % Upper arc
+  \draw[yarn] (-0.45, 0)
+    arc[start angle=180, end angle=0, x radius=0.45, y radius=0.2];
+  % Legs
+  \draw[yarn] (-0.45, 0) -- (-0.45, -0.6);
+  \draw[yarn] (0.45, 0) -- (0.45, -0.6);
+
+  % Inter-stitch sweep 0->1
+  \draw[yarn] (0.45, -0.6)
+    arc[start angle=180, end angle=0, x radius=0.15, y radius=0.15];
+
+  % === Stitch 1 (x=1.2) ===
+  \draw[yarn] ({1.2-0.45}, 0)
+    arc[start angle=180, end angle=0, x radius=0.45, y radius=0.2];
+  \draw[yarn] ({1.2-0.45}, 0) -- ({1.2-0.45}, -0.6);
+  \draw[yarn] ({1.2+0.45}, 0) -- ({1.2+0.45}, -0.6);
+
+  % Inter-stitch sweep 1->2
+  \draw[yarn] ({1.2+0.45}, -0.6)
+    arc[start angle=180, end angle=0, x radius=0.15, y radius=0.15];
+
+  % === Stitch 2 (x=2.4) ===
+  \draw[yarn] ({2.4-0.45}, 0)
+    arc[start angle=180, end angle=0, x radius=0.45, y radius=0.2];
+  \draw[yarn] ({2.4-0.45}, 0) -- ({2.4-0.45}, -0.6);
+  \draw[yarn] ({2.4+0.45}, 0) -- ({2.4+0.45}, -0.6);
+
+  % Row-end turn
+  \draw[yarn] ({2.4+0.45}, -0.6)
+    .. controls ({2.4+1.0}, -0.6) and ({2.4+1.0}, -2.0) ..
+    ({2.4+0.45}, -2.0);
+
+  % === Row 2: stitches 3,4,5 going right to left ===
+  % These interlock with row 1 above them
+
+  % Stitch 5 (x=2.4, row 2) -- first worked in row 2 (right to left)
+  % Upper arc at y=-1.4 (sits within stitch 2's legs)
+  \draw[yarn] ({2.4+0.35}, -1.4)
+    arc[start angle=0, end angle=180, x radius=0.35, y radius=0.18];
+  % Left leg passes through stitch 2's loop
+  \draw[yarn] ({2.4-0.35}, -1.4) -- ({2.4-0.35}, -2.0);
+  % Right leg passes through stitch 2's loop
+  \draw[yarn] ({2.4+0.35}, -1.4) -- ({2.4+0.35}, -2.0);
+
+  % Crossing gaps on stitch 2's legs where stitch 5's arc crosses
+  % (stitch 5's upper arc passes BEHIND stitch 2's legs)
+
+  % Inter-stitch sweep 5->4 (going right to left now)
+  \draw[yarn] ({2.4-0.35}, -2.0)
+    arc[start angle=0, end angle=180, x radius=0.175, y radius=0.15];
+
+  % Stitch 4 (x=1.2, row 2)
+  \draw[yarn] ({1.2+0.35}, -1.4)
+    arc[start angle=0, end angle=180, x radius=0.35, y radius=0.18];
+  \draw[yarn] ({1.2-0.35}, -1.4) -- ({1.2-0.35}, -2.0);
+  \draw[yarn] ({1.2+0.35}, -1.4) -- ({1.2+0.35}, -2.0);
+
+  % Inter-stitch sweep 4->3
+  \draw[yarn] ({1.2-0.35}, -2.0)
+    arc[start angle=0, end angle=180, x radius=0.175, y radius=0.15];
+
+  % Stitch 3 (x=0, row 2)
+  \draw[yarn] ({0+0.35}, -1.4)
+    arc[start angle=0, end angle=180, x radius=0.35, y radius=0.18];
+  \draw[yarn] ({0-0.35}, -1.4) -- ({0-0.35}, -2.0);
+  \draw[yarn] ({0+0.35}, -1.4) -- ({0+0.35}, -2.0);
+
+  % Row labels
+  \node[font=\tiny, gray] at (-0.8, 0) {Row 1 $\rightarrow$};
+  \node[font=\tiny, gray] at (-0.8, -1.4) {$\leftarrow$ Row 2};
+\end{scope}
+
+\end{tikzpicture}
+
+\end{document}

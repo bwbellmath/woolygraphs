@@ -1,0 +1,106 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage[hidelinks]{hyperref}
+\usepackage[numbers,sort&compress]{natbib}
+\setlength{\parskip}{0.6em}
+\setlength{\parindent}{0pt}
+\definecolor{heading}{HTML}{1F4E79}
+\newcommand{\memoheader}[1]{\vspace{0.4em}{\large\bfseries\color{heading} #1}\par\vspace{0.2em}}
+\title{Literature and Positioning Memo:\\Finite Knitted Objects, Crossing Presentations, and Knot-Theoretic Closure}
+\author{}
+\date{April 5, 2026}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\memoheader{Purpose}
+This memo assesses whether existing literature—especially the papers around Elisabetta Matsumoto's knitting topology program—already proves the target ``finished-object'' property for finite knitted constructions, and identifies the safest novelty claim for an algorithms-oriented paper. The working target is a framework that starts from a library of stitch primitives, composes them into finite knit fabrics, extracts a yarn-level crossing representation, and studies the knot or link obtained by passing the final working end through the last loop and closing to the cast-on end.
+
+\memoheader{Bottom line}
+The strongest nearby prior art is on \emph{two-periodic weft-knitted textiles}, not finite finished objects. Markande and Matsumoto introduce a topological framework for constructing two-periodic knitted stitches and define \emph{swatches} as compositional objects supporting an algebra of joins \citep{MarkandeMatsumoto2020}. Kuzbary, Markande, Matsumoto, and Pritchard develop this further by modeling two-periodic weft-knitted textiles as links in the thickened torus and proving that the corresponding Dehn-filled links in $S^3$ are ribbon links \citep{KuzbaryEtAl2025}. Morton and Grishanov provide an earlier textile-link framework for doubly periodic textile structures via link diagrams in a thickened torus and Alexander-type invariants \citep{MortonGrishanov2009}. At the yarn-scale data-structure level, TopoKnit already gives a process-oriented representation whose nodes encode crossings/intertwinings and whose edges encode yarn segments between them \citep{KapllaniEtAl2021}. Finally, \emph{Wooly Graphs} already formalizes finite stitch- and yarn-graph models for knit objects and explicitly includes a knot-theoretic component in the definition of finished knit objects \citep{GrayEtAl2024}.
+
+I do \emph{not} see, in the materials reviewed here, a theorem that directly matches the desired finite closure statement:
+\begin{quote}
+For every finite knitted object assembled from a specified library of stitch primitives satisfying local compatibility rules, passing the working end through the final loop and joining it to the cast-on end yields a well-defined finite knot or link with a computable crossing presentation and corresponding knot invariants.
+\end{quote}
+What \emph{is} already present is enough that the paper should be positioned as a \emph{finite, algorithmic, constructive complement} to the periodic textile-link literature rather than as the first topological treatment of knitting.
+
+\memoheader{Closest prior art and what it covers}
+\textbf{(1) Doubly/two-periodic textile-link models.} Morton and Grishanov show that doubly periodic textile structures can be quotiented to link diagrams in a thickened torus and then converted to classical links by adding auxiliary components; the resulting ``kernel'' supports multivariable Alexander invariants that encode topological properties of the textile structure \citep{MortonGrishanov2009}. This is important background because it establishes the general move from a periodic textile to a link in a 3-manifold.
+
+Markande and Matsumoto then specialize to knitting. Their 2020 paper explicitly states that it outlines a topological framework for constructing \emph{2-periodic knitted stitches} and ``an algebra for joining stitches together to form more complicated textiles,'' with \emph{swatches} introduced as the construction that supports these knitable knots \citep{MarkandeMatsumoto2020}. This is the clearest precursor to a compositional stitch calculus.
+
+Kuzbary et al. push this substantially further. Their 2025 preprint studies the correspondence between two-periodic weft-knitted textiles and links in the thickened torus, establishes criteria for which such links arise from weft-knitting, and proves a ribbon-link result after Dehn filling \citep{KuzbaryEtAl2025}. Conceptually, this is the strongest evidence that the topology of knitting imposes nontrivial global structure, but the entire framework is built around periodic motifs and quotients rather than finite cast-on/cast-off objects.
+
+\textbf{(2) Yarn-scale process and crossing data structures.} TopoKnit is very relevant to the proposed ``crossing chart'' level. It presents a process-oriented representation for the topology of weft-knitted textiles at the yarn scale, with process space as an intermediary between machine and fabric spaces, and emphasizes concise evaluation and near constant-time local queries \citep{KapllaniEtAl2021}. Although TopoKnit is not a knot-theory paper, its object type is already close to a crossing/incidence structure: crossings or intertwinings become the local units, and yarn segments between them become edges. This makes it the most obvious prior-art neighbor to a yarn crossing presentation.
+
+\textbf{(3) Finite graph models for knitted objects.} \emph{Wooly Graphs} already formalizes a finite stitch-level graph and a yarn-level directed multigraph, and it explicitly defines knit objects in terms that include a knot-theoretic closure condition \citep{GrayEtAl2024}. In other words, the paper already occupies the territory ``finite knitted objects can be modeled by graphs, and some finished objects have nontrivial knot behavior.'' What it does \emph{not} yet appear to provide is a crossing-level presentation with a theorem-driven translation from stitch primitives to knot diagrams and their invariants. That is where the next paper can still be genuinely additive.
+
+\memoheader{What seems not yet proved}
+Based on these sources, the following target statement still appears open enough to support a paper:
+\begin{quote}
+Starting from a finite library of stitch primitives equipped with local graph and crossing semantics, one can compose arbitrary finite fabrics subject to compatibility rules, automatically derive a canonical yarn crossing presentation for the finished object, and then compute knot or link invariants of the closure obtained by threading the working end through the terminal loop and joining to the cast-on end.
+\end{quote}
+The key distinction is \emph{finite versus periodic}. The Matsumoto line of work is fundamentally about periodic bulk structure, often deliberately passing to a quotient and thereby suppressing ordinary boundary effects \citep{MarkandeMatsumoto2020,KuzbaryEtAl2025}. By contrast, the proposed paper cares exactly about boundaries: the cast-on end, the active working end, the final securing pass, and the resulting single closed component or finite link. That boundary-sensitive closure operation seems to be the missing piece.
+
+There is also a modeling distinction. Existing work gives either (i) periodic topological motifs in the thickened torus, (ii) process-space data structures for weft-knits, or (iii) stitch and yarn graphs for finite knitted objects. A paper whose core contribution is a \emph{crossing presentation} extracted from finite construction data would sit in the intersection of these literatures rather than directly duplicating any one of them.
+
+\memoheader{Methods and ideas worth borrowing}
+Several ideas from the periodic literature look genuinely reusable.
+
+\textbf{Swatches as process-aware primitives.} The swatch language in Markande--Matsumoto and in Kuzbary et al. is useful because it distinguishes the process of knitting from a purely static geometric motif \citep{MarkandeMatsumoto2020,KuzbaryEtAl2025}. Even if the paper does not adopt the exact swatch formalism, it can cite this distinction to justify why three layers are needed: a stitch graph for combinatorial adjacency, a yarn graph for path-level structure, and a crossing presentation for knot-theoretic extraction.
+
+\textbf{Composition by controlled gluing.} The periodic papers are not merely classificatory; they discuss algebraic ways to combine local stitch objects into larger textiles \citep{MarkandeMatsumoto2020,KuzbaryEtAl2025}. This strongly supports framing the new contribution as a compositional semantics for stitch primitives. If the construction operators can be expressed as local gluing, concatenation, or row-wise/column-wise attachment with proofs of preservation of validity, the paper will look more like an algorithms paper and less like a catalog of examples.
+
+\textbf{Ribbonity as a sanity check rather than the main theorem.} Kuzbary et al.'s ribbon-link theorem for two-periodic weft-knits is an appealing comparison point \citep{KuzbaryEtAl2025}. It probably should not be the main target of the finite paper, but it can motivate a broader question: do standard families of finite closures inherit ribbon-like constraints, or do boundary effects produce a different class of knot/link types?
+
+\textbf{Alexander-style invariants as precedent for topological extraction.} Morton and Grishanov's use of multivariable Alexander polynomials for periodic textiles shows that extracting computable invariants from textile topology is already an accepted move \citep{MortonGrishanov2009}. That helps legitimize a pipeline based on Fox colorings, determinants, or Alexander-type data for finite closures.
+
+\memoheader{What to call the third object}
+``Crossing chart'' is understandable, but it sounds informal next to the rest of the framework. The strongest alternatives are:
+\begin{itemize}[leftmargin=1.5em,itemsep=0.2em]
+    \item \textbf{yarn crossing presentation}
+    \item \textbf{crossing incidence structure}
+    \item \textbf{crossing presentation of the finished object}
+\end{itemize}
+Among these, \emph{yarn crossing presentation} is probably the best fit for an algorithms paper. It signals that the object is not merely a picture; it is a finite combinatorial encoding from which a knot diagram, coloring matrix, determinant, or other invariant can be derived.
+
+\memoheader{Positioning for an ESA-style paper}
+The safest and strongest positioning claim is something like the following:
+\begin{quote}
+Existing work develops topological and geometric frameworks for periodic knitted textiles, process-oriented yarn representations, and finite stitch/yarn graphs. Our contribution is a finite, compositional, algorithmic framework that starts from stitch primitives, constructs finite knitted objects with explicit boundary semantics, derives a canonical yarn crossing presentation for the finished closure, and enables direct computation of knot and link invariants.
+\end{quote}
+This claim avoids overreaching while still being ambitious. It does \emph{not} claim that graph models of knitting are new, that textile links are new, or that compositional stitch algebras are new in the abstract. Instead, it isolates the gap between those bodies of work and the finished-object invariant pipeline.
+
+For ESA or a similar algorithms venue, the paper will likely need theorems of the following kinds:
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.25em]
+    \item \textbf{Representation theorem:} every valid stitch program in the library induces a well-defined stitch graph, yarn graph, and yarn crossing presentation.
+    \item \textbf{Compositional correctness:} local composition operations preserve validity and single-strand consistency under explicit conditions.
+    \item \textbf{Closure theorem:} the finishing rule (passing the working end through the terminal loop and joining to the cast-on end) yields a well-defined knot or link.
+    \item \textbf{Algorithmic extraction:} the crossing presentation can be transformed into a Fox-coloring system / determinant matrix in polynomial time.
+    \item \textbf{Complexity or structure results:} for example, complexity of recognizing realizability, or sufficient conditions guaranteeing nontriviality of the finished closure.
+\end{enumerate}
+
+\memoheader{Risk assessment}
+The main risk is not that Matsumoto's group has already proved the exact finished-object theorem; I do not see that in the sources reviewed. The bigger risk is that, without careful positioning, reviewers will read the work as ``another knitting graph paper'' or ``a reinvention of textile links in the thickened torus.'' The antidote is to foreground the exact gap being filled: \emph{finite boundary-aware closure with algorithmic crossing extraction}. That is narrow enough to be plausible and broad enough to matter.
+
+\memoheader{Practical recommendation}
+The next step should be to write the paper around a precise pipeline:
+\[
+\text{stitch primitive library} \longrightarrow \text{stitch graph} \longrightarrow \text{yarn graph} \longrightarrow \text{yarn crossing presentation} \longrightarrow \text{knot/link invariants.}
+\]
+The related-work section can then divide prior work into three bins: periodic textile-link theory, yarn-scale/topological process representations, and finite graph models for knitting. In that framing, the novelty claim becomes both honest and sharp.
+
+\bibliographystyle{plainnat}
+\bibliography{knitting_memo}
+\end{document}

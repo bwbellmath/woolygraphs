@@ -1,0 +1,35 @@
+{
+  "pattern_file": "mobius_strip.txt",
+  "layout_mode": "circular",
+  "edge_lengths": {
+    "h_length_mm": 4.0,
+    "v_length_mm": 3.0
+  },
+  "topology": {
+    "circular": true,
+    "mobius": true,
+    "join_stitch": 12
+  },
+  "shaping": {
+    "allow_3d": true,
+    "short_row_profile": null
+  },
+  "cables": {
+    "squeeze_factor": 0.8
+  },
+  "mannequin": {
+    "enabled": false,
+    "mesh_file": null,
+    "anchors": []
+  },
+  "optimizer": {
+    "method": "pytorch",
+    "epochs": 2000,
+    "learning_rate": 0.01,
+    "forces": {
+      "edge_spring": 1.0,
+      "repulsion": 0.15,
+      "solid_angle": 0.2
+    }
+  }
+}

@@ -1,0 +1,3006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Knit Geometry Editor</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #eee; display: flex; height: 100vh; overflow: hidden; }
+
+#toolbar {
+  width: 220px; background: #16213e; padding: 12px; display: flex; flex-direction: column; gap: 8px;
+  border-right: 1px solid #0f3460; overflow-y: auto; flex-shrink: 0;
+}
+#toolbar h2 { font-size: 14px; color: #e94560; margin: 8px 0 4px; text-transform: uppercase; letter-spacing: 1px; }
+#toolbar button {
+  padding: 8px 12px; background: #0f3460; color: #eee; border: 1px solid #1a4a8a;
+  border-radius: 4px; cursor: pointer; font-size: 13px; text-align: left; transition: background 0.15s;
+}
+#toolbar button:hover { background: #1a4a8a; }
+#toolbar button.active { background: #e94560; border-color: #e94560; }
+#toolbar label { font-size: 12px; color: #aaa; display: flex; align-items: center; gap: 6px; }
+#toolbar input[type="number"] {
+  width: 60px; background: #0a0a1a; color: #eee; border: 1px solid #333; border-radius: 3px; padding: 3px 6px;
+}
+#toolbar .sep { border-top: 1px solid #0f3460; margin: 4px 0; }
+#toolbar .info { font-size: 11px; color: #666; line-height: 1.4; }
+
+#main-area { flex: 1; display: flex; flex-direction: row; min-width: 0; }
+#canvas-wrap { flex: 1; position: relative; min-width: 200px; }
+canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+
+#status {
+  position: absolute; bottom: 0; left: 0; right: 0; background: rgba(22,33,62,0.9);
+  padding: 4px 12px; font-size: 12px; color: #888; display: flex; gap: 20px;
+}
+
+/* TikZ Panel */
+#tikz-panel {
+  width: 400px; background: #12122a; border-left: 1px solid #0f3460;
+  display: flex; flex-direction: column; flex-shrink: 0;
+}
+#tikz-panel.collapsed { width: 32px; }
+#tikz-panel.collapsed > :not(#tikz-toggle) { display: none; }
+#tikz-toggle {
+  padding: 6px 10px; background: #0f3460; color: #e94560; border: none;
+  cursor: pointer; font-size: 13px; font-weight: bold; text-align: center;
+}
+#tikz-toggle:hover { background: #1a4a8a; }
+#tikz-header {
+  padding: 8px 10px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  border-bottom: 1px solid #0f3460;
+}
+#tikz-header button {
+  padding: 4px 10px; background: #0f3460; color: #eee; border: 1px solid #1a4a8a;
+  border-radius: 3px; cursor: pointer; font-size: 12px;
+}
+#tikz-header button:hover { background: #1a4a8a; }
+#tikz-header button.primary { background: #e94560; border-color: #e94560; }
+#tikz-code {
+  flex: 1; min-height: 100px; background: #0a0a18; color: #b0e0b0; border: none;
+  padding: 8px; font-family: 'Fira Code', 'Consolas', monospace; font-size: 12px;
+  resize: none; outline: none; white-space: pre; overflow: auto; tab-size: 2;
+}
+#tikz-preview-wrap {
+  height: 300px; min-height: 100px; border-top: 1px solid #0f3460;
+  overflow: auto; background: #fff; position: relative;
+}
+#tikz-preview-wrap .placeholder {
+  color: #999; font-size: 13px; padding: 20px; text-align: center;
+}
+#tikz-resize-handle {
+  height: 5px; background: #0f3460; cursor: ns-resize;
+}
+#tikz-status {
+  padding: 4px 10px; font-size: 11px; color: #666; background: #0e0e20;
+  border-top: 1px solid #0f3460;
+}
+/* Color palette */
+#color-palette {
+  display: flex; flex-wrap: wrap; gap: 5px; padding: 4px 0;
+}
+.color-swatch {
+  width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+  border: 2px solid transparent; transition: transform 0.1s, border-color 0.1s;
+  position: relative;
+}
+.color-swatch:hover { transform: scale(1.15); }
+.color-swatch.active { border-color: #fff; transform: scale(1.15); }
+.color-swatch .swatch-num {
+  position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; font-size: 10px; font-weight: bold; color: rgba(0,0,0,0.7);
+  pointer-events: none;
+}
+.color-swatch-none {
+  width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+  border: 2px solid #555; background: #1a1a2e; display: flex;
+  align-items: center; justify-content: center; font-size: 10px; color: #888;
+}
+.color-swatch-none:hover { border-color: #aaa; }
+.color-swatch-none.active { border-color: #fff; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div style="font-size:16px;font-weight:bold;color:#e94560;">Knit Editor</div>
+
+  <h2>Tools</h2>
+  <button id="btn-select" class="active" data-tool="select">V &mdash; Select / Move</button>
+  <button id="btn-ellipse" data-tool="ellipse">E &mdash; Ellipse</button>
+  <button id="btn-line" data-tool="line">L &mdash; Line</button>
+  <button id="btn-bezier" data-tool="bezier">B &mdash; Bezier (multi-point)</button>
+  <button id="btn-trim" data-tool="trim">T &mdash; Trim</button>
+  <button id="btn-point" data-tool="point">P &mdash; Point / Vertex</button>
+  <button id="btn-paint" data-tool="paint">F &mdash; Paint Arc</button>
+
+  <div class="sep"></div>
+  <h2>Arrange</h2>
+  <div style="display:flex;gap:4px;flex-wrap:wrap;">
+    <button id="btn-align-h" style="flex:1;min-width:80px">J &mdash; Align H</button>
+    <button id="btn-align-v" style="flex:1;min-width:80px">K &mdash; Align V</button>
+  </div>
+  <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">
+    <button id="btn-dist-h" style="flex:1;min-width:80px">H &mdash; Dist H</button>
+    <button id="btn-dist-v" style="flex:1;min-width:80px">D &mdash; Dist V</button>
+  </div>
+  <label>Spacing <input type="number" id="dist-spacing" placeholder="auto" style="width:50px"> px</label>
+
+  <div class="sep"></div>
+  <h2>Properties</h2>
+  <div id="props">
+    <div class="info">Select a shape to edit properties</div>
+  </div>
+
+  <div class="sep"></div>
+  <h2>Crossings &amp; Trim</h2>
+  <div class="info">Hover intersection, press <b>C</b> to toggle over/under.<br><b>Del</b> on hovered crossing to delete it.<br><b>T</b> tool: click arc segments to trim.</div>
+  <button id="btn-find-crossings">Find All Crossings</button>
+  <button id="btn-clear-crossings" style="color:#f88">Clear All Crossings</button>
+
+  <div class="sep"></div>
+  <h2>Arc Colors</h2>
+  <div class="info">Select F (paint), click a color, then click an arc.</div>
+  <div id="color-palette">
+    <div class="color-swatch-none active" id="swatch-none" title="No color (clear)"><span>✕</span></div>
+    <div class="color-swatch" id="swatch-0" style="background:#E69F00" title="Color 0"><span class="swatch-num">0</span></div>
+    <div class="color-swatch" id="swatch-1" style="background:#56B4E9" title="Color 1"><span class="swatch-num">1</span></div>
+    <div class="color-swatch" id="swatch-2" style="background:#009E73" title="Color 2"><span class="swatch-num">2</span></div>
+    <div class="color-swatch" id="swatch-3" style="background:#F0E442" title="Color 3"><span class="swatch-num">3</span></div>
+    <div class="color-swatch" id="swatch-4" style="background:#0072B2" title="Color 4"><span class="swatch-num">4</span></div>
+    <div class="color-swatch" id="swatch-5" style="background:#D55E00" title="Color 5"><span class="swatch-num">5</span></div>
+    <div class="color-swatch" id="swatch-6" style="background:#CC79A7" title="Color 6"><span class="swatch-num">6</span></div>
+  </div>
+
+  <div class="sep"></div>
+  <h2>Actions</h2>
+  <button id="btn-delete">Delete Selected (Del)</button>
+  <button id="btn-export-tikz">Export TikZ</button>
+  <button id="btn-save-geom" style="background:#1a6a3a;border-color:#2a8a5a">Save Geometry (JSON)</button>
+  <button id="btn-load-geom">Load Geometry (JSON)</button>
+  <button id="btn-import-tikz">Import from .tex</button>
+  <input type="file" id="load-geom-file" accept=".json,.tex" style="display:none">
+
+  <div class="sep"></div>
+  <h2>Shortcuts</h2>
+  <div class="info">
+    Scroll: zoom | Mid/Space+drag: pan<br>
+    Shift+ellipse: circle<br>
+    Ctrl+C/V: copy/paste | Ctrl+A: select all<br>
+    Ctrl+Z: undo | Del: delete<br>
+    C: toggle crossing | T: trim tool<br>
+    P: point/vertex | F: paint arc<br>
+    J: align H | K: align V<br>
+    H: distribute H | D: distribute V<br>
+    Bezier: click points, Enter to finish<br>
+    Esc: cancel / deselect
+  </div>
+</div>
+
+<div id="main-area">
+  <div id="canvas-wrap">
+    <canvas id="c"></canvas>
+    <div id="status">
+      <span id="st-tool">Tool: select</span>
+      <span id="st-pos">0, 0</span>
+      <span id="st-zoom">100%</span>
+      <span id="st-count">0 shapes</span>
+    </div>
+  </div>
+
+  <div id="tikz-panel">
+    <button id="tikz-toggle">TikZ</button>
+    <div id="tikz-header">
+      <button id="btn-gen-tikz" class="primary">Generate</button>
+      <button id="btn-render-tikz">Render Preview</button>
+      <button id="btn-save-tikz">Save .tex</button>
+      <button id="btn-copy-tikz">Copy</button>
+    </div>
+    <textarea id="tikz-code" spellcheck="false">% Click "Generate" to create TikZ from canvas shapes</textarea>
+    <div id="tikz-resize-handle"></div>
+    <div id="tikz-preview-wrap">
+      <div class="placeholder">Click "Render Preview" after generating code</div>
+    </div>
+    <div id="tikz-status">Ready</div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// GEOMETRY HELPERS
+// ============================================================
+
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function lerp(a, b, t) { return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }; }
+
+// Point on ellipse at angle t (radians)
+function ellipsePoint(cx, cy, rx, ry, rot, t) {
+  const cs = Math.cos(rot), sn = Math.sin(rot);
+  const px = rx * Math.cos(t), py = ry * Math.sin(t);
+  return { x: cx + px * cs - py * sn, y: cy + px * sn + py * cs };
+}
+
+// Tangent direction on ellipse at angle t
+function ellipseTangent(rx, ry, rot, t) {
+  const cs = Math.cos(rot), sn = Math.sin(rot);
+  const dx = -rx * Math.sin(t), dy = ry * Math.cos(t);
+  return { x: dx * cs - dy * sn, y: dx * sn + dy * cs };
+}
+
+// Find the parameter t on ellipse closest to point p
+function ellipseClosestParam(cx, cy, rx, ry, rot, px, py) {
+  // Transform point into ellipse-local coords
+  const cs = Math.cos(-rot), sn = Math.sin(-rot);
+  const dx = px - cx, dy = py - cy;
+  const lx = dx * cs - dy * sn, ly = dx * sn + dy * cs;
+  // Initial guess
+  let t = Math.atan2(ly / ry, lx / rx);
+  // Newton refinement
+  for (let i = 0; i < 8; i++) {
+    const ex = rx * Math.cos(t), ey = ry * Math.sin(t);
+    const edx = -rx * Math.sin(t), edy = ry * Math.cos(t);
+    const fx = ex - lx, fy = ey - ly;
+    const dot = fx * edx + fy * edy;
+    const ddot = -fx * rx * Math.cos(t) - fy * ry * Math.sin(t) + edx * edx + edy * edy;
+    if (Math.abs(ddot) > 1e-12) t -= dot / ddot;
+  }
+  return t;
+}
+
+// Line-line intersection: segments (a1,a2) and (b1,b2)
+function segSegIntersect(a1, a2, b1, b2) {
+  const d1x = a2.x - a1.x, d1y = a2.y - a1.y;
+  const d2x = b2.x - b1.x, d2y = b2.y - b1.y;
+  const cross = d1x * d2y - d1y * d2x;
+  if (Math.abs(cross) < 1e-10) return null;
+  const t = ((b1.x - a1.x) * d2y - (b1.y - a1.y) * d2x) / cross;
+  const u = ((b1.x - a1.x) * d1y - (b1.y - a1.y) * d1x) / cross;
+  if (t < 0 || t > 1 || u < 0 || u > 1) return null;
+  return { x: a1.x + t * d1x, y: a1.y + t * d1y, t, u };
+}
+
+// Sample a cubic bezier
+function bezierPoint(p0, p1, p2, p3, t) {
+  const mt = 1 - t;
+  return {
+    x: mt*mt*mt*p0.x + 3*mt*mt*t*p1.x + 3*mt*t*t*p2.x + t*t*t*p3.x,
+    y: mt*mt*mt*p0.y + 3*mt*mt*t*p1.y + 3*mt*t*t*p2.y + t*t*t*p3.y
+  };
+}
+
+// Approximate bezier as line segments for intersection testing
+function bezierSegments(p0, p1, p2, p3, n = 32) {
+  const pts = [];
+  for (let i = 0; i <= n; i++) pts.push(bezierPoint(p0, p1, p2, p3, i / n));
+  return pts;
+}
+
+// Get line segments approximating any shape for crossing detection
+function shapeSegments(shape) {
+  const segs = [];
+  if (shape.type === 'point') return segs;  // points have no segments
+  if (shape.type === 'line') {
+    const p1 = getLineEndpoint(shape, 0);
+    const p2 = getLineEndpoint(shape, 1);
+    segs.push({ a: p1, b: p2, shape, idx: 0 });
+  } else if (shape.type === 'ellipse') {
+    const n = 64;
+    for (let i = 0; i < n; i++) {
+      const t1 = (i / n) * Math.PI * 2;
+      const t2 = ((i + 1) / n) * Math.PI * 2;
+      segs.push({
+        a: ellipsePoint(shape.cx, shape.cy, shape.rx, shape.ry, shape.rot, t1),
+        b: ellipsePoint(shape.cx, shape.cy, shape.rx, shape.ry, shape.rot, t2),
+        shape, idx: i
+      });
+    }
+  } else if (shape.type === 'bezier') {
+    const pts = bezierSegments(shape.p0, shape.p1, shape.p2, shape.p3, 48);
+    for (let i = 0; i < pts.length - 1; i++) {
+      segs.push({ a: pts[i], b: pts[i + 1], shape, idx: i });
+    }
+  }
+  return segs;
+}
+
+// ============================================================
+// SHAPE TYPES
+// ============================================================
+
+let nextId = 1;
+
+function makeEllipse(cx, cy, rx, ry, rot = 0) {
+  return { id: nextId++, type: 'ellipse', cx, cy, rx, ry, rot, selected: false, trims: [] };
+  // trims: [{from: angle, to: angle}] — hidden arc segments
+}
+function makeLine(x1, y1, x2, y2) {
+  return {
+    id: nextId++, type: 'line', x1, y1, x2, y2, selected: false,
+    attach0: null, attach1: null,  // {shapeId, param} for tangent attachment
+    trims: []  // [{from: t, to: t}] — hidden segments (t in 0..1)
+  };
+}
+function makeBezier(p0, p1, p2, p3) {
+  return {
+    id: nextId++, type: 'bezier',
+    p0: {...p0}, p1: {...p1}, p2: {...p2}, p3: {...p3},
+    selected: false, trims: [],
+    attach0: null, attach1: null  // attachments for p0 and p3
+  };
+}
+// Build a multi-segment cubic bezier from anchor points with smooth control points
+function makePolyBezier(anchors) {
+  if (anchors.length < 2) return null;
+  if (anchors.length === 2) {
+    const a = anchors[0], b = anchors[1];
+    return makeBezier(a, lerp(a, b, 0.33), lerp(a, b, 0.67), b);
+  }
+  // Chain cubic segments: for each pair of consecutive anchors, create a bezier
+  // Use Catmull-Rom-ish tangents for smoothness
+  const segs = [];
+  for (let i = 0; i < anchors.length - 1; i++) {
+    const a = anchors[i], b = anchors[i + 1];
+    const prev = i > 0 ? anchors[i - 1] : { x: 2*a.x - b.x, y: 2*a.y - b.y };
+    const next = i + 1 < anchors.length - 1 ? anchors[i + 2] : { x: 2*b.x - a.x, y: 2*b.y - a.y };
+    const cp1 = { x: a.x + (b.x - prev.x) * 0.25, y: a.y + (b.y - prev.y) * 0.25 };
+    const cp2 = { x: b.x - (next.x - a.x) * 0.25, y: b.y - (next.y - a.y) * 0.25 };
+    segs.push(makeBezier(a, cp1, cp2, b));
+  }
+  return segs;  // returns array of bezier shapes
+}
+
+function makePoint(x, y) {
+  return { id: nextId++, type: 'point', x, y, selected: false, trims: [] };
+}
+
+// Returns the discrete endpoints of a shape (for arc connectivity)
+function shapeEndpoints(s) {
+  if (s.type === 'line') return [getLineEndpoint(s, 0), getLineEndpoint(s, 1)];
+  if (s.type === 'bezier') {
+    // Use resolved attachment positions if available
+    const ep0 = s.attach0 ? (resolveAttachment(s.attach0) || { ...s.p0 }) : { ...s.p0 };
+    const ep1 = s.attach1 ? (resolveAttachment(s.attach1) || { ...s.p3 }) : { ...s.p3 };
+    return [ep0, ep1];
+  }
+  if (s.type === 'point') return [{ x: s.x, y: s.y }];
+  return [];  // ellipses don't have discrete endpoints
+}
+
+// Check if two shapes share a vertex (by attachment ID or endpoint proximity).
+// Returns the shared world-coord point or null.
+function shapesShareVertex(a, b) {
+  const SNAP = 8; // fixed world-coord threshold
+
+  // Collect attachments from shapes that support them (lines and beziers)
+  function getAttachments(s) {
+    if (s.type === 'line' || s.type === 'bezier') {
+      return [s.attach0, s.attach1].filter(Boolean);
+    }
+    return [];
+  }
+
+  const aAtts = getAttachments(a);
+  const bAtts = getAttachments(b);
+
+  // Check if a is directly attached to b
+  for (const att of aAtts) {
+    if (att.shapeId === b.id) {
+      const pt = resolveAttachment(att);
+      if (pt) return pt;
+    }
+  }
+  // Check if b is directly attached to a
+  for (const att of bAtts) {
+    if (att.shapeId === a.id) {
+      const pt = resolveAttachment(att);
+      if (pt) return pt;
+    }
+  }
+  // Check if a and b share a common attachment target
+  for (const aAtt of aAtts) {
+    for (const bAtt of bAtts) {
+      if (aAtt.shapeId === bAtt.shapeId) {
+        const pa = resolveAttachment(aAtt);
+        const pb = resolveAttachment(bAtt);
+        if (pa && pb && dist(pa, pb) < SNAP) return pa;
+      }
+    }
+  }
+
+  // Fall back to endpoint proximity
+  const epsA = shapeEndpoints(a);
+  const epsB = shapeEndpoints(b);
+  for (const pa of epsA) {
+    for (const pb of epsB) {
+      if (dist(pa, pb) < SNAP) return { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 };
+    }
+  }
+  return null;
+}
+
+// BFS flood-fill: find all shapes in the same arc (continuous strand not cut by undercrossings).
+// An arc is a maximal connected set of shapes where the strand doesn't pass under another strand.
+// Returns array of shape IDs.
+function findConnectedArc(startShape) {
+  const CROSS_SNAP = 30; // world-coord radius to associate a crossing with a shared vertex
+  const visited = new Set([startShape.id]);
+  const queue = [startShape];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    for (const other of shapes) {
+      if (visited.has(other.id)) continue;
+      if (other.type === 'point') continue;
+      if (other.type === 'ellipse' && current.type === 'ellipse') continue; // ellipses don't chain endpoint-to-endpoint
+
+      const sharedPt = shapesShareVertex(current, other);
+      if (!sharedPt) continue;
+
+      // Block if either shape is the UNDER strand at a crossing near this junction.
+      // That means the strand passes under here, breaking the arc.
+      const blocked = crossings.some(c => {
+        if (dist({ x: c.x, y: c.y }, sharedPt) > CROSS_SNAP) return false;
+        const underId = c.overA ? c.shapeB_id : c.shapeA_id;
+        return underId === current.id || underId === other.id;
+      });
+      if (!blocked) {
+        visited.add(other.id);
+        queue.push(other);
+      }
+    }
+  }
+  return [...visited];
+}
+
+// Get line endpoint accounting for tangent attachment
+function getLineEndpoint(line, idx) {
+  const attach = idx === 0 ? line.attach0 : line.attach1;
+  if (attach) {
+    const pt = resolveAttachment(attach);
+    if (pt) return pt;
+  }
+  return idx === 0 ? { x: line.x1, y: line.y1 } : { x: line.x2, y: line.y2 };
+}
+
+// Update line endpoint coords from attachment
+function syncLineAttachments(line) {
+  if (line.attach0) {
+    const pt = getLineEndpoint(line, 0);
+    line.x1 = pt.x; line.y1 = pt.y;
+  }
+  if (line.attach1) {
+    const pt = getLineEndpoint(line, 1);
+    line.x2 = pt.x; line.y2 = pt.y;
+  }
+}
+
+// Resolve an attachment to a world-coord point (shared by lines and beziers)
+function resolveAttachment(attach) {
+  if (!attach) return null;
+  const shape = shapes.find(s => s.id === attach.shapeId);
+  if (!shape) return null;
+  if (shape.type === 'ellipse') {
+    return ellipsePoint(shape.cx, shape.cy, shape.rx, shape.ry, shape.rot, attach.param);
+  }
+  if (shape.type === 'point') return { x: shape.x, y: shape.y };
+  if (shape.type === 'line') {
+    const idx = attach.endpointIdx || 0;
+    return idx === 0 ? { x: shape.x1, y: shape.y1 } : { x: shape.x2, y: shape.y2 };
+  }
+  if (shape.type === 'bezier') {
+    const key = attach.endpointKey || 'p0';
+    return { x: shape[key].x, y: shape[key].y };
+  }
+  return null;
+}
+
+function syncBezierAttachments(bez) {
+  if (bez.attach0) {
+    const pt = resolveAttachment(bez.attach0);
+    if (pt) {
+      // Move control point p1 by the same delta as p0
+      const dx = pt.x - bez.p0.x, dy = pt.y - bez.p0.y;
+      bez.p1.x += dx; bez.p1.y += dy;
+      bez.p0.x = pt.x; bez.p0.y = pt.y;
+    }
+  }
+  if (bez.attach1) {
+    const pt = resolveAttachment(bez.attach1);
+    if (pt) {
+      const dx = pt.x - bez.p3.x, dy = pt.y - bez.p3.y;
+      bez.p2.x += dx; bez.p2.y += dy;
+      bez.p3.x = pt.x; bez.p3.y = pt.y;
+    }
+  }
+}
+
+// Find the ellipse parameter t where a line from external point p
+// is tangent to the ellipse. Returns the t closest to currentT hint.
+function ellipseTangentParam(cx, cy, rx, ry, rot, px, py, currentT) {
+  // Transform p into ellipse-local coordinates
+  const cs = Math.cos(-rot), sn = Math.sin(-rot);
+  const dx = px - cx, dy = py - cy;
+  const lx = dx * cs - dy * sn, ly = dx * sn + dy * cs;
+
+  // At parameter t, ellipse point is (rx*cos(t), ry*sin(t))
+  // Tangent vector is (-rx*sin(t), ry*cos(t))
+  // For the line from (lx,ly) to the ellipse point to be parallel to
+  // the tangent, we need:
+  //   (rx*cos(t) - lx) * ry*cos(t) - (ry*sin(t) - ly) * (-rx*sin(t)) = 0
+  //   rx*ry*cos^2(t) - lx*ry*cos(t) + rx*ry*sin^2(t) - ly*rx*sin(t) = 0
+  //   rx*ry - lx*ry*cos(t) - ly*rx*sin(t) = 0
+  //   lx*ry*cos(t) + ly*rx*sin(t) = rx*ry
+  //
+  // This is: A*cos(t) + B*sin(t) = C
+  // where A = lx*ry, B = ly*rx, C = rx*ry
+  const A = lx * ry, B = ly * rx, C = rx * ry;
+  const R = Math.hypot(A, B);
+
+  if (R < 1e-10) return currentT;  // point is at center, no tangent
+  if (Math.abs(C / R) > 1) {
+    // Point is inside the ellipse, fall back to closest point
+    return ellipseClosestParam(cx, cy, rx, ry, rot, px, py);
+  }
+
+  // A*cos(t) + B*sin(t) = C  =>  R*cos(t - phi) = C
+  // where phi = atan2(B, A)
+  const phi = Math.atan2(B, A);
+  const alpha = Math.acos(Math.max(-1, Math.min(1, C / R)));
+
+  // Two solutions
+  const t1 = phi + alpha;
+  const t2 = phi - alpha;
+
+  // Pick the one closest to currentT (maintains continuity when dragging)
+  function angleDist(a, b) {
+    let d = ((a - b) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+    return Math.abs(d);
+  }
+
+  return angleDist(t1, currentT) < angleDist(t2, currentT) ? t1 : t2;
+}
+
+// Recompute tangent param when ellipse moves
+function recomputeTangentParam(line, idx, ellipse) {
+  const attach = idx === 0 ? line.attach0 : line.attach1;
+  if (!attach || attach.shapeId !== ellipse.id) return;
+  // Use the OTHER endpoint of the line as the external point
+  const other = idx === 0 ? getLineEndpoint(line, 1) : getLineEndpoint(line, 0);
+  attach.param = ellipseTangentParam(
+    ellipse.cx, ellipse.cy, ellipse.rx, ellipse.ry, ellipse.rot,
+    other.x, other.y, attach.param
+  );
+}
+
+// ============================================================
+// STATE
+// ============================================================
+
+// Wong (2011) 7 colorblind-friendly colors
+const ARC_COLORS = ['#E69F00','#56B4E9','#009E73','#F0E442','#0072B2','#D55E00','#CC79A7'];
+let selectedColorIdx = null;  // null = no color (clear), 0-6 = arc color
+
+let shapes = [];
+let crossings = [];  // {x, y, shapeA_id, shapeB_id, overA: bool}
+let tool = 'select';
+let viewX = 0, viewY = 0, viewZoom = 1;
+let clipboard = null;  // serialized shapes for paste
+let dragState = null;
+let hoverCrossing = null;
+let hoverTrimSeg = null;  // {shape, segIdx, from, to} for trim preview
+
+// Undo stack
+const undoStack = [];
+const MAX_UNDO = 80;
+
+function pushUndo() {
+  undoStack.push({
+    shapes: JSON.parse(JSON.stringify(shapes)),
+    crossings: JSON.parse(JSON.stringify(crossings)),
+    nextId: nextId
+  });
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+}
+
+function undo() {
+  if (undoStack.length === 0) return;
+  const state = undoStack.pop();
+  shapes = state.shapes;
+  crossings = state.crossings;
+  nextId = state.nextId;
+  updatePropsPanel();
+  render();
+}
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+// ============================================================
+// VIEW TRANSFORMS
+// ============================================================
+
+function screenToWorld(sx, sy) {
+  return { x: (sx - viewX) / viewZoom, y: (sy - viewY) / viewZoom };
+}
+function worldToScreen(wx, wy) {
+  return { x: wx * viewZoom + viewX, y: wy * viewZoom + viewY };
+}
+
+// ============================================================
+// HIT TESTING
+// ============================================================
+
+function hitTestShape(wx, wy, threshold = 8) {
+  const thr = threshold / viewZoom;
+  // Reverse order so topmost shapes are hit first
+  for (let i = shapes.length - 1; i >= 0; i--) {
+    const s = shapes[i];
+    if (s.type === 'point') {
+      if (dist({ x: wx, y: wy }, { x: s.x, y: s.y }) < thr * 1.5) return { shape: s, handle: 'center' };
+    } else if (s.type === 'ellipse') {
+      // Check if point is near ellipse boundary
+      const t = ellipseClosestParam(s.cx, s.cy, s.rx, s.ry, s.rot, wx, wy);
+      const ep = ellipsePoint(s.cx, s.cy, s.rx, s.ry, s.rot, t);
+      if (dist({ x: wx, y: wy }, ep) < thr) return { shape: s, handle: null };
+      // Also check center for easy grab
+      if (dist({ x: wx, y: wy }, { x: s.cx, y: s.cy }) < thr) return { shape: s, handle: 'center' };
+    } else if (s.type === 'line') {
+      const p1 = getLineEndpoint(s, 0), p2 = getLineEndpoint(s, 1);
+      if (dist({ x: wx, y: wy }, p1) < thr) return { shape: s, handle: 'p1' };
+      if (dist({ x: wx, y: wy }, p2) < thr) return { shape: s, handle: 'p2' };
+      // Distance to line segment
+      const len2 = (p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2;
+      if (len2 > 0) {
+        let t = ((wx - p1.x) * (p2.x - p1.x) + (wy - p1.y) * (p2.y - p1.y)) / len2;
+        t = Math.max(0, Math.min(1, t));
+        const proj = { x: p1.x + t * (p2.x - p1.x), y: p1.y + t * (p2.y - p1.y) };
+        if (dist({ x: wx, y: wy }, proj) < thr) return { shape: s, handle: null };
+      }
+    } else if (s.type === 'bezier') {
+      // Check control point handles
+      for (const k of ['p0', 'p1', 'p2', 'p3']) {
+        if (dist({ x: wx, y: wy }, s[k]) < thr) return { shape: s, handle: k };
+      }
+      // Check curve proximity
+      const pts = bezierSegments(s.p0, s.p1, s.p2, s.p3, 48);
+      for (let j = 0; j < pts.length - 1; j++) {
+        const p1 = pts[j], p2 = pts[j + 1];
+        const len2 = (p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2;
+        if (len2 > 0) {
+          let t = ((wx - p1.x) * (p2.x - p1.x) + (wy - p1.y) * (p2.y - p1.y)) / len2;
+          t = Math.max(0, Math.min(1, t));
+          const proj = { x: p1.x + t * (p2.x - p1.x), y: p1.y + t * (p2.y - p1.y) };
+          if (dist({ x: wx, y: wy }, proj) < thr) return { shape: s, handle: null };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// Hit test for resize handles on selected ellipses
+function hitTestEllipseHandles(wx, wy, threshold = 8) {
+  const thr = threshold / viewZoom;
+  for (const s of shapes) {
+    if (!s.selected || s.type !== 'ellipse') continue;
+    // Four cardinal handles
+    for (const angle of [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2]) {
+      const hp = ellipsePoint(s.cx, s.cy, s.rx, s.ry, s.rot, angle);
+      if (dist({ x: wx, y: wy }, hp) < thr) {
+        return { shape: s, angle };
+      }
+    }
+  }
+  return null;
+}
+
+// ============================================================
+// CROSSING DETECTION
+// ============================================================
+
+// Return the mid-parameter of a segment for trim checking
+function segMidParam(shape, idx) {
+  if (shape.type === 'ellipse') return ((idx + 0.5) / 64) * Math.PI * 2;
+  if (shape.type === 'bezier') return (idx + 0.5) / 48;
+  return 0.5;
+}
+
+function findAllCrossings() {
+  crossings = [];
+  const allSegs = shapes
+    .filter(s => s.type !== 'point')
+    .map(s => ({ shape: s, segs: shapeSegments(s) }));
+
+  for (let i = 0; i < allSegs.length; i++) {
+    for (let j = i + 1; j < allSegs.length; j++) {
+      const sa = allSegs[i], sb = allSegs[j];
+      for (const segA of sa.segs) {
+        for (const segB of sb.segs) {
+          const hit = segSegIntersect(segA.a, segA.b, segB.a, segB.b);
+          if (hit) {
+            // Skip if either segment is in a trimmed region
+            const pA = segMidParam(sa.shape, segA.idx);
+            const pB = segMidParam(sb.shape, segB.idx);
+            if (isParamTrimmed(sa.shape, pA) || isParamTrimmed(sb.shape, pB)) continue;
+            // Dedup
+            const isDup = crossings.some(c =>
+              c.shapeA_id === sa.shape.id && c.shapeB_id === sb.shape.id &&
+              dist({ x: hit.x, y: hit.y }, c) < 5
+            );
+            if (!isDup) {
+              crossings.push({
+                x: hit.x, y: hit.y,
+                shapeA_id: sa.shape.id,
+                shapeB_id: sb.shape.id,
+                overA: true
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+  render();
+}
+
+function hitTestCrossing(wx, wy, threshold = 12) {
+  const thr = threshold / viewZoom;
+  for (const c of crossings) {
+    if (dist({ x: wx, y: wy }, c) < thr) return c;
+  }
+  return null;
+}
+
+// ============================================================
+// SELECTION
+// ============================================================
+
+function selectNone() { shapes.forEach(s => s.selected = false); }
+function selectShape(shape) { shape.selected = true; }
+function getSelected() { return shapes.filter(s => s.selected); }
+
+// Drag-select rectangle
+function selectInRect(x1, y1, x2, y2) {
+  const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+  const minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
+  for (const s of shapes) {
+    if (s.type === 'point') {
+      s.selected = s.x >= minX && s.x <= maxX && s.y >= minY && s.y <= maxY;
+    } else if (s.type === 'ellipse') {
+      s.selected = s.cx >= minX && s.cx <= maxX && s.cy >= minY && s.cy <= maxY;
+    } else if (s.type === 'line') {
+      const p1 = getLineEndpoint(s, 0), p2 = getLineEndpoint(s, 1);
+      const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+      s.selected = mx >= minX && mx <= maxX && my >= minY && my <= maxY;
+    } else if (s.type === 'bezier') {
+      s.selected = s.p0.x >= minX && s.p0.x <= maxX && s.p0.y >= minY && s.p0.y <= maxY;
+    }
+  }
+}
+
+// ============================================================
+// COPY / PASTE
+// ============================================================
+
+function copySelected() {
+  const sel = getSelected();
+  if (sel.length === 0) return;
+  // Deep clone
+  clipboard = JSON.parse(JSON.stringify(sel));
+}
+
+function paste() {
+  if (!clipboard) return;
+  selectNone();
+  const cloned = JSON.parse(JSON.stringify(clipboard));
+  const offset = 20 / viewZoom;
+  const idMap = {};
+  for (const s of cloned) {
+    const oldId = s.id;
+    s.id = nextId++;
+    idMap[oldId] = s.id;
+    s.selected = true;
+    // Offset position
+    if (s.type === 'point') { s.x += offset; s.y += offset; }
+    else if (s.type === 'ellipse') { s.cx += offset; s.cy += offset; }
+    else if (s.type === 'line') { s.x1 += offset; s.y1 += offset; s.x2 += offset; s.y2 += offset; }
+    else if (s.type === 'bezier') {
+      for (const k of ['p0', 'p1', 'p2', 'p3']) { s[k].x += offset; s[k].y += offset; }
+    }
+  }
+  // Remap attachment IDs
+  for (const s of cloned) {
+    if (s.type === 'line' || s.type === 'bezier') {
+      if (s.attach0 && idMap[s.attach0.shapeId]) s.attach0.shapeId = idMap[s.attach0.shapeId];
+      else if (s.attach0) s.attach0 = null;
+      if (s.attach1 && idMap[s.attach1.shapeId]) s.attach1.shapeId = idMap[s.attach1.shapeId];
+      else if (s.attach1) s.attach1 = null;
+    }
+  }
+  shapes.push(...cloned);
+  render();
+}
+
+// ============================================================
+// RENDERING
+// ============================================================
+
+function resizeCanvas() {
+  const wrap = document.getElementById('canvas-wrap');
+  canvas.width = wrap.clientWidth * devicePixelRatio;
+  canvas.height = wrap.clientHeight * devicePixelRatio;
+  canvas.style.width = wrap.clientWidth + 'px';
+  canvas.style.height = wrap.clientHeight + 'px';
+  render();
+}
+
+function render() {
+  const w = canvas.width, h = canvas.height;
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  // Background grid
+  drawGrid();
+
+  ctx.save();
+  ctx.translate(viewX, viewY);
+  ctx.scale(viewZoom, viewZoom);
+
+  // Sync attachments
+  for (const s of shapes) {
+    if (s.type === 'line') syncLineAttachments(s);
+    if (s.type === 'bezier') syncBezierAttachments(s);
+  }
+
+  // Refresh trim boundaries to match current geometry (live tangent params, etc)
+  for (const s of shapes) {
+    if (s.trims && s.trims.length > 0) refreshTrims(s);
+  }
+
+  // Build crossing gap set for rendering
+  const gapSet = buildGapSet();
+
+  // Draw shapes
+  for (const s of shapes) {
+    drawShape(s, gapSet);
+  }
+
+  // Draw trim hover highlight
+  if (tool === 'trim' && hoverTrimSeg) {
+    const s = hoverTrimSeg.shape;
+    const from = hoverTrimSeg.from;
+    const to = hoverTrimSeg.to;
+    const isTrimmed = s.trims && s.trims.some(t =>
+      Math.abs(t.from - from) < 0.05 && Math.abs(t.to - to) < 0.05
+    );
+    ctx.strokeStyle = isTrimmed ? 'rgba(0,255,0,0.6)' : 'rgba(255,0,0,0.6)';
+    ctx.lineWidth = 4 / viewZoom;
+    ctx.beginPath();
+    const steps = 30;
+    for (let i = 0; i <= steps; i++) {
+      const t = from + (to - from) * (i / steps);
+      let pt;
+      if (s.type === 'ellipse') pt = ellipsePoint(s.cx, s.cy, s.rx, s.ry, s.rot, t);
+      else if (s.type === 'line') {
+        const p1 = getLineEndpoint(s, 0), p2 = getLineEndpoint(s, 1);
+        pt = lerp(p1, p2, t);
+      } else if (s.type === 'bezier') {
+        pt = bezierPoint(s.p0, s.p1, s.p2, s.p3, t);
+      }
+      if (pt) {
+        if (i === 0) ctx.moveTo(pt.x, pt.y);
+        else ctx.lineTo(pt.x, pt.y);
+      }
+    }
+    ctx.stroke();
+  }
+
+  // Draw drag-select rectangle
+  if (dragState && dragState.type === 'rectSelect') {
+    ctx.strokeStyle = '#e94560';
+    ctx.lineWidth = 1 / viewZoom;
+    ctx.setLineDash([4 / viewZoom, 4 / viewZoom]);
+    ctx.strokeRect(dragState.wx, dragState.wy,
+      dragState.curWx - dragState.wx, dragState.curWy - dragState.wy);
+    ctx.setLineDash([]);
+  }
+
+  ctx.restore();
+
+  // Draw crossings in screen space so labels remain legible at any zoom
+  for (const c of crossings) {
+    const sc = worldToScreen(c.x, c.y);
+    const isHover = hoverCrossing === c;
+    const r = 6;
+    ctx.beginPath();
+    ctx.arc(sc.x, sc.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = isHover ? 'rgba(233,69,96,0.85)' : (c.overA ? 'rgba(0,200,100,0.6)' : 'rgba(220,200,0,0.6)');
+    ctx.fill();
+    ctx.strokeStyle = isHover ? '#e94560' : '#888';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(c.overA ? 'A' : 'B', sc.x, sc.y);
+  }
+
+  // Arc color annotations in screen space — one labeled dot per color group
+  {
+    const colorGroups = {};
+    for (const s of shapes) {
+      if (s.color != null && s.type !== 'point') {
+        if (!colorGroups[s.color]) colorGroups[s.color] = s;
+      }
+    }
+    for (const [clr, s] of Object.entries(colorGroups)) {
+      let midWPt;
+      if (s.type === 'ellipse') midWPt = ellipsePoint(s.cx, s.cy, s.rx, s.ry, s.rot, Math.PI * 0.25);
+      else if (s.type === 'line') { const a = getLineEndpoint(s,0), b = getLineEndpoint(s,1); midWPt = lerp(a,b,0.5); }
+      else if (s.type === 'bezier') midWPt = bezierPoint(s.p0, s.p1, s.p2, s.p3, 0.5);
+      if (!midWPt) continue;
+      const sc2 = worldToScreen(midWPt.x, midWPt.y);
+      const idx = ARC_COLORS.indexOf(clr);
+      const label = idx >= 0 ? String(idx) : '?';
+      const r = 9;
+      ctx.beginPath();
+      ctx.arc(sc2.x + 12, sc2.y - 12, r, 0, Math.PI * 2);
+      ctx.fillStyle = clr;
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = idx === 3 ? '#333' : '#fff';  // yellow needs dark text
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, sc2.x + 12, sc2.y - 12);
+    }
+  }
+
+  // Status bar
+  document.getElementById('st-tool').textContent = `Tool: ${tool}`;
+  document.getElementById('st-zoom').textContent = `${Math.round(viewZoom * 100)}%`;
+  document.getElementById('st-count').textContent = `${shapes.length} shapes, ${crossings.length} crossings`;
+}
+
+function drawGrid() {
+  const w = canvas.width / devicePixelRatio, h = canvas.height / devicePixelRatio;
+  ctx.strokeStyle = '#222240';
+  ctx.lineWidth = 0.5;
+
+  const step = 50 * viewZoom;
+  const offX = viewX % step, offY = viewY % step;
+  for (let x = offX; x < w; x += step) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+  }
+  for (let y = offY; y < h; y += step) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+}
+
+// Build a set of gaps for the "under" strand at each crossing
+function buildGapSet() {
+  const gaps = [];  // {shapeId, x, y, radius}
+  for (const c of crossings) {
+    const underShapeId = c.overA ? c.shapeB_id : c.shapeA_id;
+    gaps.push({ shapeId: underShapeId, x: c.x, y: c.y, radius: 8 / viewZoom });
+  }
+  return gaps;
+}
+
+function drawShape(s, gapSet) {
+  const lw = (s.selected ? 2.5 : 1.5) / viewZoom;
+  const color = s.selected ? '#e94560' : (s.color || '#ddd');
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lw;
+  ctx.fillStyle = 'transparent';
+
+  if (s.type === 'point') {
+    const r = (s.selected ? 6 : 4) / viewZoom;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = s.selected ? '#e94560' : '#8888cc';
+    ctx.fill();
+    ctx.strokeStyle = s.selected ? '#fff' : '#aaa';
+    ctx.lineWidth = 1 / viewZoom;
+    ctx.stroke();
+    // Crosshair
+    ctx.beginPath();
+    ctx.moveTo(s.x - r * 1.6, s.y); ctx.lineTo(s.x + r * 1.6, s.y);
+    ctx.moveTo(s.x, s.y - r * 1.6); ctx.lineTo(s.x, s.y + r * 1.6);
+    ctx.strokeStyle = s.selected ? '#e94560' : '#556';
+    ctx.lineWidth = 0.8 / viewZoom;
+    ctx.stroke();
+    return;
+  }
+
+  if (s.type === 'ellipse') {
+    const gaps = gapSet.filter(g => g.shapeId === s.id);
+    const hasTrim = s.trims && s.trims.length > 0;
+    if (!hasTrim && gaps.length === 0) {
+      ctx.beginPath();
+      ctx.ellipse(s.cx, s.cy, s.rx, s.ry, s.rot, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      // Build list of visible arcs: start with full circle, subtract trims and gaps
+      // Collect all "break" angles: trim boundaries + gap boundaries
+      const breaks = []; // {angle, type: 'trimStart'|'trimEnd'|'gapStart'|'gapEnd'}
+
+      // Add trim boundaries
+      if (hasTrim) {
+        for (const trim of s.trims) {
+          breaks.push({ angle: trim.from, type: 'trimStart' });
+          breaks.push({ angle: trim.to, type: 'trimEnd' });
+        }
+      }
+
+      // Add gap boundaries (convert gap position to angle range)
+      for (const g of gaps) {
+        const t = ellipseClosestParam(s.cx, s.cy, s.rx, s.ry, s.rot, g.x, g.y);
+        const avgR = (s.rx + s.ry) / 2;
+        const dt = g.radius / Math.max(1, avgR);
+        breaks.push({ angle: t - dt, type: 'gapStart' });
+        breaks.push({ angle: t + dt, type: 'gapEnd' });
+      }
+
+      // Sample at fine resolution to find visible arcs, but draw with canvas arc API
+      const N = 512;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lw;
+      let arcStart = null;
+      for (let i = 0; i <= N; i++) {
+        const t = (i / N) * Math.PI * 2;
+        const trimmed = hasTrim && isParamTrimmed(s, t);
+        const pt = ellipsePoint(s.cx, s.cy, s.rx, s.ry, s.rot, t);
+        const inGap = gaps.some(g => dist(pt, g) < g.radius);
+        if (trimmed || inGap) {
+          if (arcStart !== null) {
+            // Draw arc from arcStart to previous angle using canvas arc
+            const endT = ((i - 1) / N) * Math.PI * 2;
+            ctx.beginPath();
+            ctx.ellipse(s.cx, s.cy, s.rx, s.ry, s.rot, arcStart, endT);
+            ctx.stroke();
+            arcStart = null;
+          }
+        } else {
+          if (arcStart === null) arcStart = t;
+        }
+      }
+      // Close any remaining arc
+      if (arcStart !== null) {
+        ctx.beginPath();
+        ctx.ellipse(s.cx, s.cy, s.rx, s.ry, s.rot, arcStart, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    // Resize handles when selected
+    if (s.selected) {
+      for (const angle of [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2]) {
+        const hp = ellipsePoint(s.cx, s.cy, s.rx, s.ry, s.rot, angle);
+        ctx.beginPath();
+        ctx.arc(hp.x, hp.y, 4 / viewZoom, 0, Math.PI * 2);
+        ctx.fillStyle = '#e94560';
+        ctx.fill();
+      }
+    }
+  } else if (s.type === 'line') {
+    const p1 = getLineEndpoint(s, 0), p2 = getLineEndpoint(s, 1);
+    const gaps = gapSet.filter(g => g.shapeId === s.id);
+    const hasTrim = s.trims && s.trims.length > 0;
+    if (!hasTrim && gaps.length === 0) {
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.stroke();
+    } else {
+      // Build exact visible segments using trim ranges and gap t-values
+      const lineLen = dist(p1, p2);
+      // Collect all "cut" t-ranges (trimmed or gap)
+      const cuts = [];
+      if (hasTrim) {
+        for (const trim of s.trims) cuts.push({ lo: trim.from, hi: trim.to });
+      }
+      for (const g of gaps) {
+        const dx = p2.x - p1.x, dy = p2.y - p1.y;
+        const t = lineLen > 0 ? ((g.x - p1.x) * dx + (g.y - p1.y) * dy) / (lineLen * lineLen) : 0.5;
+        const dt = lineLen > 0 ? g.radius / lineLen : 0.1;
+        cuts.push({ lo: Math.max(0, t - dt), hi: Math.min(1, t + dt) });
+      }
+      // Sort and merge cuts
+      cuts.sort((a, b) => a.lo - b.lo);
+      const merged = [];
+      for (const c of cuts) {
+        if (merged.length > 0 && c.lo <= merged[merged.length - 1].hi) {
+          merged[merged.length - 1].hi = Math.max(merged[merged.length - 1].hi, c.hi);
+        } else {
+          merged.push({ lo: c.lo, hi: c.hi });
+        }
+      }
+      // Draw visible segments between cuts
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lw;
+      let t = 0;
+      for (const c of merged) {
+        if (t < c.lo) {
+          const a = lerp(p1, p2, Math.max(0, t));
+          const b = lerp(p1, p2, c.lo);
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        }
+        t = c.hi;
+      }
+      if (t < 1) {
+        const a = lerp(p1, p2, t);
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+      }
+    }
+    // Endpoint handles
+    if (s.selected) {
+      for (const p of [p1, p2]) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 4 / viewZoom, 0, Math.PI * 2);
+        ctx.fillStyle = s.attach0 || s.attach1 ? '#00cc66' : '#e94560';
+        ctx.fill();
+      }
+    }
+    // Attachment indicators
+    if (s.attach0) {
+      ctx.beginPath();
+      ctx.arc(p1.x, p1.y, 6 / viewZoom, 0, Math.PI * 2);
+      ctx.strokeStyle = '#00cc66';
+      ctx.lineWidth = 1 / viewZoom;
+      ctx.stroke();
+    }
+    if (s.attach1) {
+      ctx.beginPath();
+      ctx.arc(p2.x, p2.y, 6 / viewZoom, 0, Math.PI * 2);
+      ctx.strokeStyle = '#00cc66';
+      ctx.lineWidth = 1 / viewZoom;
+      ctx.stroke();
+    }
+  } else if (s.type === 'bezier') {
+    const gaps = gapSet.filter(g => g.shapeId === s.id);
+    const hasTrim = s.trims && s.trims.length > 0;
+    if (!hasTrim && gaps.length === 0) {
+      ctx.beginPath();
+      ctx.moveTo(s.p0.x, s.p0.y);
+      ctx.bezierCurveTo(s.p1.x, s.p1.y, s.p2.x, s.p2.y, s.p3.x, s.p3.y);
+      ctx.stroke();
+    } else {
+      const n = 256; // high-res for smooth bezier trim rendering
+      let inStroke = false;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lw;
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        const p = bezierPoint(s.p0, s.p1, s.p2, s.p3, t);
+        const trimmed = hasTrim && isParamTrimmed(s, t);
+        const inGap = gaps.some(g => dist(p, g) < g.radius);
+        if (trimmed || inGap) {
+          if (inStroke) { ctx.stroke(); ctx.beginPath(); inStroke = false; }
+        } else {
+          if (!inStroke) { ctx.beginPath(); ctx.moveTo(p.x, p.y); inStroke = true; }
+          else { ctx.lineTo(p.x, p.y); }
+        }
+      }
+      if (inStroke) ctx.stroke();
+    }
+    // Control handles
+    if (s.selected) {
+      ctx.strokeStyle = '#666';
+      ctx.lineWidth = 0.8 / viewZoom;
+      ctx.setLineDash([3 / viewZoom, 3 / viewZoom]);
+      ctx.beginPath();
+      ctx.moveTo(s.p0.x, s.p0.y); ctx.lineTo(s.p1.x, s.p1.y);
+      ctx.moveTo(s.p3.x, s.p3.y); ctx.lineTo(s.p2.x, s.p2.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      for (const k of ['p0', 'p1', 'p2', 'p3']) {
+        const p = s[k];
+        const isAnchor = k === 'p0' || k === 'p3';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, (isAnchor ? 4 : 3) / viewZoom, 0, Math.PI * 2);
+        ctx.fillStyle = isAnchor ? '#e94560' : '#ff8800';
+        ctx.fill();
+      }
+      // Attachment indicators
+      if (s.attach0) {
+        ctx.beginPath();
+        ctx.arc(s.p0.x, s.p0.y, 6 / viewZoom, 0, Math.PI * 2);
+        ctx.strokeStyle = '#00cc66';
+        ctx.lineWidth = 1 / viewZoom;
+        ctx.stroke();
+      }
+      if (s.attach1) {
+        ctx.beginPath();
+        ctx.arc(s.p3.x, s.p3.y, 6 / viewZoom, 0, Math.PI * 2);
+        ctx.strokeStyle = '#00cc66';
+        ctx.lineWidth = 1 / viewZoom;
+        ctx.stroke();
+      }
+    }
+  }
+}
+
+// Draw an ellipse with gaps at crossing points
+function drawShapeWithGaps(s, gaps) {
+  // Approximate with polyline and skip gap regions
+  const n = 128;
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const t = (i / n) * Math.PI * 2;
+    pts.push(ellipsePoint(s.cx, s.cy, s.rx, s.ry, s.rot, t));
+  }
+  drawPolygonWithGaps(pts, gaps, ctx.strokeStyle, ctx.lineWidth, true);
+}
+
+function drawLineWithGaps(p1, p2, gaps, color, lw) {
+  const pts = [p1, p2];
+  drawPolygonWithGaps(pts, gaps, color, lw, false);
+}
+
+function drawBezierWithGaps(s, gaps, color, lw) {
+  const pts = bezierSegments(s.p0, s.p1, s.p2, s.p3, 64);
+  drawPolygonWithGaps(pts, gaps, color, lw, false);
+}
+
+function drawPolygonWithGaps(pts, gaps, color, lw, closed) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lw;
+  let inStroke = false;
+  ctx.beginPath();
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    const inGap = gaps.some(g => dist(p, g) < g.radius);
+    if (inGap) {
+      if (inStroke) { ctx.stroke(); ctx.beginPath(); inStroke = false; }
+    } else {
+      if (!inStroke) { ctx.beginPath(); ctx.moveTo(p.x, p.y); inStroke = true; }
+      else { ctx.lineTo(p.x, p.y); }
+    }
+  }
+  if (inStroke) ctx.stroke();
+}
+
+// ============================================================
+// PROPERTIES PANEL
+// ============================================================
+
+function updatePropsPanel() {
+  const sel = getSelected();
+  const div = document.getElementById('props');
+  if (sel.length === 0) {
+    div.innerHTML = '<div class="info">Select a shape to edit properties</div>';
+    return;
+  }
+  if (sel.length > 1) {
+    div.innerHTML = `<div class="info">${sel.length} shapes selected</div>`;
+    return;
+  }
+  const s = sel[0];
+  let html = '';
+  if (s.type === 'ellipse') {
+    html = `
+      <label>CX <input type="number" value="${s.cx.toFixed(1)}" onchange="updateProp(${s.id},'cx',+this.value)"></label>
+      <label>CY <input type="number" value="${s.cy.toFixed(1)}" onchange="updateProp(${s.id},'cy',+this.value)"></label>
+      <label>RX <input type="number" value="${s.rx.toFixed(1)}" min="1" onchange="updateProp(${s.id},'rx',+this.value)"></label>
+      <label>RY <input type="number" value="${s.ry.toFixed(1)}" min="1" onchange="updateProp(${s.id},'ry',+this.value)"></label>
+      <label>Rot <input type="number" value="${(s.rot * 180 / Math.PI).toFixed(1)}" onchange="updateProp(${s.id},'rot',+this.value*Math.PI/180)"></label>
+    `;
+  } else if (s.type === 'line') {
+    html = `
+      <label>X1 <input type="number" value="${s.x1.toFixed(1)}" onchange="updateProp(${s.id},'x1',+this.value)"></label>
+      <label>Y1 <input type="number" value="${s.y1.toFixed(1)}" onchange="updateProp(${s.id},'y1',+this.value)"></label>
+      <label>X2 <input type="number" value="${s.x2.toFixed(1)}" onchange="updateProp(${s.id},'x2',+this.value)"></label>
+      <label>Y2 <input type="number" value="${s.y2.toFixed(1)}" onchange="updateProp(${s.id},'y2',+this.value)"></label>
+    `;
+  }
+  div.innerHTML = html;
+}
+
+function updateProp(id, key, val) {
+  const s = shapes.find(s => s.id === id);
+  if (s) { s[key] = val; render(); }
+}
+
+// ============================================================
+// TIKZ EXPORT
+// ============================================================
+
+// ============================================================
+// TIKZ GENERATION
+// ============================================================
+
+// Scale factor: canvas world coords -> TikZ coords (cm)
+const TIKZ_SCALE = 0.02;
+
+function generateTikZ() {
+  const sc = TIKZ_SCALE;
+  // Flip Y: TikZ has Y-up, canvas has Y-down
+  const ty = (y) => (-y * sc).toFixed(3);
+  const tx = (x) => (x * sc).toFixed(3);
+  const tr = (r) => (r * sc).toFixed(3);
+
+  let tikz = '';
+  tikz += '\\begin{tikzpicture}\n';
+  tikz += '  % Generated by Knit Geometry Editor\n';
+  tikz += '  \\tikzset{\n';
+  tikz += '    yarn/.style={line width=1.2pt, orange!80!black},\n';
+  tikz += '    yarnbg/.style={line width=3.5pt, white},\n';
+  tikz += '  }\n\n';
+
+  // Sort shapes so "under" shapes at crossings get drawn first,
+  // then white-gap overlays, then "over" shapes
+  const overIds = new Set();
+  const underIds = new Set();
+  for (const c of crossings) {
+    overIds.add(c.overA ? c.shapeA_id : c.shapeB_id);
+    underIds.add(c.overA ? c.shapeB_id : c.shapeA_id);
+  }
+
+  // Helper: generate draw command for a shape
+  function shapeToTikZ(s, style = 'yarn') {
+    if (s.type === 'ellipse') {
+      const rotDeg = (s.rot * 180 / Math.PI).toFixed(1);
+      return `  \\draw[${style}] (${tx(s.cx)},${ty(s.cy)}) ellipse[x radius=${tr(s.rx)}, y radius=${tr(s.ry)}, rotate=${rotDeg}];\n`;
+    } else if (s.type === 'line') {
+      const p1 = getLineEndpoint(s, 0), p2 = getLineEndpoint(s, 1);
+      return `  \\draw[${style}] (${tx(p1.x)},${ty(p1.y)}) -- (${tx(p2.x)},${ty(p2.y)});\n`;
+    } else if (s.type === 'bezier') {
+      return `  \\draw[${style}] (${tx(s.p0.x)},${ty(s.p0.y)}) .. controls (${tx(s.p1.x)},${ty(s.p1.y)}) and (${tx(s.p2.x)},${ty(s.p2.y)}) .. (${tx(s.p3.x)},${ty(s.p3.y)});\n`;
+    }
+    return '';
+  }
+
+  // Helper: generate arc segments for a shape with gaps
+  function shapeWithGapsTikZ(s, gaps) {
+    if (s.type === 'line') {
+      const p1 = getLineEndpoint(s, 0), p2 = getLineEndpoint(s, 1);
+      // Find gap parameters along the line
+      const dx = p2.x - p1.x, dy = p2.y - p1.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 1e-6) return shapeToTikZ(s);
+
+      const gapRadius = 8 / viewZoom;
+      // Compute t-values where gaps occur
+      const gapTs = [];
+      for (const g of gaps) {
+        const t = ((g.x - p1.x) * dx + (g.y - p1.y) * dy) / (len * len);
+        const dt = gapRadius / len;
+        gapTs.push({ lo: Math.max(0, t - dt), hi: Math.min(1, t + dt) });
+      }
+      gapTs.sort((a, b) => a.lo - b.lo);
+
+      // Merge overlapping gaps
+      const merged = [];
+      for (const g of gapTs) {
+        if (merged.length > 0 && g.lo <= merged[merged.length - 1].hi) {
+          merged[merged.length - 1].hi = Math.max(merged[merged.length - 1].hi, g.hi);
+        } else {
+          merged.push({ ...g });
+        }
+      }
+
+      // Draw segments between gaps
+      let out = '';
+      let t = 0;
+      for (const g of merged) {
+        if (t < g.lo) {
+          const a = lerp(p1, p2, t), b = lerp(p1, p2, g.lo);
+          out += `  \\draw[yarn] (${tx(a.x)},${ty(a.y)}) -- (${tx(b.x)},${ty(b.y)});\n`;
+        }
+        t = g.hi;
+      }
+      if (t < 1) {
+        const a = lerp(p1, p2, t);
+        out += `  \\draw[yarn] (${tx(a.x)},${ty(a.y)}) -- (${tx(p2.x)},${ty(p2.y)});\n`;
+      }
+      return out;
+
+    } else if (s.type === 'ellipse') {
+      // Approximate: for each gap, compute the angle range to skip
+      const gapRadius = 8 / viewZoom;
+      const gapAngles = [];
+      for (const g of gaps) {
+        const t = ellipseClosestParam(s.cx, s.cy, s.rx, s.ry, s.rot, g.x, g.y);
+        // Approximate angular width of gap
+        const avgR = (s.rx + s.ry) / 2;
+        const dt = gapRadius / avgR;
+        gapAngles.push({ lo: t - dt, hi: t + dt });
+      }
+      gapAngles.sort((a, b) => a.lo - b.lo);
+
+      // Draw arcs between gaps
+      let out = `  % Ellipse id=${s.id} with gaps\n`;
+      const rotDeg = (s.rot * 180 / Math.PI).toFixed(1);
+      // For simplicity, output full ellipse + white overlay at crossing
+      // (This is the standard knot-diagram technique)
+      out += shapeToTikZ(s);
+      return out;
+
+    } else if (s.type === 'bezier') {
+      // For bezier with gaps: split into sub-curves
+      // Approximate by finding t-parameters of gaps
+      const gapRadius = 8 / viewZoom;
+      const pts = bezierSegments(s.p0, s.p1, s.p2, s.p3, 64);
+      const gapTs = [];
+      for (const g of gaps) {
+        let bestT = 0, bestD = Infinity;
+        for (let i = 0; i <= 64; i++) {
+          const t = i / 64;
+          const p = bezierPoint(s.p0, s.p1, s.p2, s.p3, t);
+          const d = dist(p, g);
+          if (d < bestD) { bestD = d; bestT = t; }
+        }
+        const dt = gapRadius / 200; // approximate
+        gapTs.push({ lo: Math.max(0, bestT - dt * 2), hi: Math.min(1, bestT + dt * 2) });
+      }
+      gapTs.sort((a, b) => a.lo - b.lo);
+
+      // For now, draw full curve + white gap overlay approach
+      let out = shapeToTikZ(s);
+      return out;
+    }
+    return shapeToTikZ(s);
+  }
+
+  // Strategy: draw under-shapes first, then white gap overlays, then over-shapes
+  // Shapes not in any crossing are drawn normally
+
+  // 1. Draw "under" shapes (they'll be partially covered by white gaps)
+  tikz += '  % --- Under strands ---\n';
+  for (const s of shapes) {
+    if (underIds.has(s.id) && !overIds.has(s.id)) {
+      tikz += shapeToTikZ(s);
+    }
+  }
+
+  // 2. White gap overlays at crossing points (on top of under-shapes)
+  tikz += '\n  % --- Crossing gaps (white overlays on under-strands) ---\n';
+  for (const c of crossings) {
+    const overShape = shapes.find(s => s.id === (c.overA ? c.shapeA_id : c.shapeB_id));
+    if (!overShape) continue;
+    // Draw a short thick white segment of the OVER shape at the crossing
+    // This creates the illusion of the under shape having a gap
+    const gapR = 10 / viewZoom;
+    // Find the tangent direction of the over-shape at the crossing point
+    if (overShape.type === 'line') {
+      const p1 = getLineEndpoint(overShape, 0), p2 = getLineEndpoint(overShape, 1);
+      const dx = p2.x - p1.x, dy = p2.y - p1.y;
+      const len = Math.hypot(dx, dy);
+      const nx = dx / len * gapR, ny = dy / len * gapR;
+      tikz += `  \\draw[yarnbg] (${tx(c.x - nx)},${ty(c.y - ny)}) -- (${tx(c.x + nx)},${ty(c.y + ny)});\n`;
+    } else if (overShape.type === 'bezier') {
+      // Approximate tangent from nearby bezier samples
+      let bestT = 0.5, bestD = Infinity;
+      for (let i = 0; i <= 64; i++) {
+        const t = i / 64;
+        const p = bezierPoint(overShape.p0, overShape.p1, overShape.p2, overShape.p3, t);
+        const d = dist(p, c);
+        if (d < bestD) { bestD = d; bestT = t; }
+      }
+      const pA = bezierPoint(overShape.p0, overShape.p1, overShape.p2, overShape.p3, Math.max(0, bestT - 0.02));
+      const pB = bezierPoint(overShape.p0, overShape.p1, overShape.p2, overShape.p3, Math.min(1, bestT + 0.02));
+      const dx = pB.x - pA.x, dy = pB.y - pA.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = dx / len * gapR, ny = dy / len * gapR;
+      tikz += `  \\draw[yarnbg] (${tx(c.x - nx)},${ty(c.y - ny)}) -- (${tx(c.x + nx)},${ty(c.y + ny)});\n`;
+    } else if (overShape.type === 'ellipse') {
+      const t = ellipseClosestParam(overShape.cx, overShape.cy, overShape.rx, overShape.ry, overShape.rot, c.x, c.y);
+      const tang = ellipseTangent(overShape.rx, overShape.ry, overShape.rot, t);
+      const len = Math.hypot(tang.x, tang.y) || 1;
+      const nx = tang.x / len * gapR, ny = tang.y / len * gapR;
+      tikz += `  \\draw[yarnbg] (${tx(c.x - nx)},${ty(c.y - ny)}) -- (${tx(c.x + nx)},${ty(c.y + ny)});\n`;
+    }
+  }
+
+  // 3. Draw "over" shapes and neutral shapes
+  tikz += '\n  % --- Over strands and non-crossing shapes ---\n';
+  for (const s of shapes) {
+    if (!underIds.has(s.id) || overIds.has(s.id)) {
+      tikz += shapeToTikZ(s);
+    }
+  }
+
+  tikz += '\\end{tikzpicture}\n';
+  return tikz;
+}
+
+function generateFullDocument() {
+  const body = generateTikZ();
+  return `\\documentclass[11pt]{article}
+\\usepackage[margin=0.5in]{geometry}
+\\usepackage{tikz}
+\\begin{document}
+${body}
+\\end{document}
+`;
+}
+
+function exportTikZ() {
+  const tikz = generateTikZ();
+  navigator.clipboard.writeText(tikz).then(() => {
+    setTikzStatus('TikZ copied to clipboard');
+  }).catch(() => {
+    prompt('Copy TikZ code:', tikz);
+  });
+}
+
+// ============================================================
+// EVENT HANDLING
+// ============================================================
+
+let keys = {};
+let mouseWorld = { x: 0, y: 0 };
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const factor = e.deltaY > 0 ? 0.9 : 1.1;
+  const newZoom = Math.max(0.05, Math.min(50, viewZoom * factor));
+  // Zoom toward cursor
+  viewX = mx - (mx - viewX) * (newZoom / viewZoom);
+  viewY = my - (my - viewY) * (newZoom / viewZoom);
+  viewZoom = newZoom;
+  render();
+}, { passive: false });
+
+canvas.addEventListener('mousedown', e => {
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  const w = screenToWorld(sx, sy);
+  mouseWorld = w;
+
+  // Middle button or space held: pan
+  if (e.button === 1 || (e.button === 0 && keys['Space'])) {
+    dragState = { type: 'pan', startSx: sx, startSy: sy, startVx: viewX, startVy: viewY };
+    canvas.style.cursor = 'grabbing';
+    return;
+  }
+
+  if (e.button !== 0) return;
+
+  if (tool === 'select') {
+    // Check ellipse resize handles first
+    const rh = hitTestEllipseHandles(w.x, w.y);
+    if (rh) {
+      dragState = {
+        type: 'resizeEllipse', shape: rh.shape, angle: rh.angle,
+        startRx: rh.shape.rx, startRy: rh.shape.ry, wx: w.x, wy: w.y
+      };
+      return;
+    }
+
+    const hit = hitTestShape(w.x, w.y);
+    if (hit) {
+      if (!e.shiftKey && !hit.shape.selected) selectNone();
+      selectShape(hit.shape);
+      updatePropsPanel();
+
+      pushUndo();
+      if (hit.shape.type === 'bezier' && hit.handle) {
+        // Dragging a specific bezier handle
+        dragState = { type: 'dragBezierHandle', shape: hit.shape, handle: hit.handle, wx: w.x, wy: w.y };
+      } else if (hit.shape.type === 'line' && (hit.handle === 'p1' || hit.handle === 'p2')) {
+        dragState = { type: 'dragLineEndpoint', shape: hit.shape, handle: hit.handle, wx: w.x, wy: w.y };
+      } else {
+        // Move selected shapes
+        dragState = {
+          type: 'move', wx: w.x, wy: w.y,
+          starts: getSelected().map(s => {
+            if (s.type === 'point') return { id: s.id, x: s.x, y: s.y };
+            if (s.type === 'ellipse') return { id: s.id, cx: s.cx, cy: s.cy };
+            if (s.type === 'line') return { id: s.id, x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2 };
+            if (s.type === 'bezier') return { id: s.id, p0: {...s.p0}, p1: {...s.p1}, p2: {...s.p2}, p3: {...s.p3} };
+          })
+        };
+      }
+    } else {
+      // Start rect select
+      if (!e.shiftKey) selectNone();
+      dragState = { type: 'rectSelect', wx: w.x, wy: w.y, curWx: w.x, curWy: w.y };
+      updatePropsPanel();
+    }
+    render();
+
+  } else if (tool === 'ellipse') {
+    dragState = { type: 'drawEllipse', wx: w.x, wy: w.y, shift: e.shiftKey };
+
+  } else if (tool === 'line') {
+    dragState = { type: 'drawLine', wx: w.x, wy: w.y };
+
+  } else if (tool === 'bezier') {
+    // Multi-point bezier: click to add points, Enter to finish
+    // Snap anchor to nearest endpoint for tangent continuity
+    let anchor = { x: w.x, y: w.y };
+    const snapTarget = findNearestAttachTarget(w.x, w.y);
+    let snapInfo = null;
+    if (snapTarget) {
+      // Snap position to the exact endpoint
+      if (snapTarget.type === 'point') {
+        anchor = { x: snapTarget.shape.x, y: snapTarget.shape.y };
+      } else if (snapTarget.type === 'ellipse') {
+        const ep = ellipsePoint(snapTarget.shape.cx, snapTarget.shape.cy,
+          snapTarget.shape.rx, snapTarget.shape.ry, snapTarget.shape.rot, snapTarget.param);
+        anchor = { x: ep.x, y: ep.y };
+        // Tangent from ellipse at param
+        const tang = ellipseTangent(snapTarget.shape.rx, snapTarget.shape.ry, snapTarget.shape.rot, snapTarget.param);
+        const tlen = Math.hypot(tang.x, tang.y);
+        if (tlen > 1e-6) snapInfo = { tx: tang.x / tlen, ty: tang.y / tlen };
+      } else if (snapTarget.type === 'lineEndpoint') {
+        const ep = snapTarget.endpointIdx === 0
+          ? getLineEndpoint(snapTarget.shape, 0) : getLineEndpoint(snapTarget.shape, 1);
+        anchor = { x: ep.x, y: ep.y };
+        const tang = getEndpointTangent(snapTarget.shape, snapTarget.endpointIdx);
+        if (tang) snapInfo = { tx: tang.x, ty: tang.y };
+      } else if (snapTarget.type === 'bezierEndpoint') {
+        const key = snapTarget.endpointKey;
+        anchor = { x: snapTarget.shape[key].x, y: snapTarget.shape[key].y };
+        const tang = getEndpointTangent(snapTarget.shape, key);
+        if (tang) snapInfo = { tx: tang.x, ty: tang.y };
+      }
+    }
+    // Build attachment from snap target
+    let snapAttach = snapTarget ? targetToAttachment(snapTarget) : null;
+    if (snapTarget && snapTarget.type === 'ellipse') {
+      // Use tangent param for ellipse attachment
+      const otherPt = { x: w.x + 10, y: w.y }; // initial guess direction
+      const tParam = ellipseTangentParam(
+        snapTarget.shape.cx, snapTarget.shape.cy, snapTarget.shape.rx, snapTarget.shape.ry, snapTarget.shape.rot,
+        otherPt.x, otherPt.y, snapTarget.param
+      );
+      snapAttach = { shapeId: snapTarget.shape.id, param: tParam };
+    }
+    if (dragState && dragState.type === 'polyBezier') {
+      dragState.anchors.push(anchor);
+      dragState.endSnap = snapInfo;
+      dragState.endAttach = snapAttach;
+    } else {
+      dragState = {
+        type: 'polyBezier', anchors: [anchor], curW: { x: w.x, y: w.y },
+        startSnap: snapInfo, endSnap: null,
+        startAttach: snapAttach, endAttach: null
+      };
+    }
+    render();
+    return;  // don't clear dragState on mouseup
+
+  } else if (tool === 'point') {
+    pushUndo();
+    const pt = makePoint(w.x, w.y);
+    shapes.push(pt);
+    selectNone(); selectShape(pt);
+    updatePropsPanel();
+    render();
+
+  } else if (tool === 'paint') {
+    // Find the shape nearest to click
+    const hit = hitTestShape(w.x, w.y, 12);
+    if (hit && hit.shape.type !== 'point') {
+      pushUndo();
+      const arcIds = findConnectedArc(hit.shape);
+      const newColor = selectedColorIdx !== null ? ARC_COLORS[selectedColorIdx] : null;
+      for (const id of arcIds) {
+        const s = shapes.find(s => s.id === id);
+        if (s) {
+          if (newColor === null) delete s.color;
+          else s.color = newColor;
+        }
+      }
+      render();
+    }
+
+  } else if (tool === 'trim') {
+    // Click to toggle trim on the hovered arc segment
+    if (hoverTrimSeg) {
+      toggleTrim(hoverTrimSeg.shape, hoverTrimSeg);
+    }
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  const w = screenToWorld(sx, sy);
+  mouseWorld = w;
+  document.getElementById('st-pos').textContent = `${w.x.toFixed(0)}, ${w.y.toFixed(0)}`;
+
+  // Update hover crossing
+  hoverCrossing = hitTestCrossing(w.x, w.y);
+
+  // Update trim hover
+  hoverTrimSeg = null;
+  if (tool === 'trim') {
+    const thr = 10 / viewZoom;
+    for (const s of shapes) {
+      const arcs = buildTrimArcSegments(s);
+      for (const arc of arcs) {
+        // Check if mouse is near the midpoint of this arc
+        let midPt;
+        if (s.type === 'ellipse') {
+          midPt = ellipsePoint(s.cx, s.cy, s.rx, s.ry, s.rot, arc.midParam);
+        } else if (s.type === 'line') {
+          const p1 = getLineEndpoint(s, 0), p2 = getLineEndpoint(s, 1);
+          midPt = lerp(p1, p2, arc.midParam);
+        } else if (s.type === 'bezier') {
+          midPt = bezierPoint(s.p0, s.p1, s.p2, s.p3, arc.midParam);
+        }
+        if (midPt && dist({ x: w.x, y: w.y }, midPt) < thr * 3) {
+          // More precise: check if mouse is near any point along this arc
+          let isNear = false;
+          const steps = 20;
+          for (let i = 0; i <= steps; i++) {
+            const t = arc.from + (arc.to - arc.from) * (i / steps);
+            let pt;
+            if (s.type === 'ellipse') pt = ellipsePoint(s.cx, s.cy, s.rx, s.ry, s.rot, t);
+            else if (s.type === 'line') {
+              const p1 = getLineEndpoint(s, 0), p2 = getLineEndpoint(s, 1);
+              pt = lerp(p1, p2, t);
+            } else if (s.type === 'bezier') {
+              pt = bezierPoint(s.p0, s.p1, s.p2, s.p3, t);
+            }
+            if (pt && dist({ x: w.x, y: w.y }, pt) < thr) { isNear = true; break; }
+          }
+          if (isNear) {
+            hoverTrimSeg = { shape: s, from: arc.from, to: arc.to, midParam: arc.midParam };
+            break;
+          }
+        }
+      }
+      if (hoverTrimSeg) break;
+    }
+  }
+
+  // PolyBezier: update current mouse position for preview
+  if (dragState && dragState.type === 'polyBezier') {
+    dragState.curW = { x: w.x, y: w.y };
+    render();
+    // Draw preview
+    ctx.save();
+    ctx.translate(viewX, viewY);
+    ctx.scale(viewZoom, viewZoom);
+    const anchors = dragState.anchors;
+    ctx.setLineDash([4 / viewZoom, 4 / viewZoom]);
+    ctx.strokeStyle = '#e94560';
+    ctx.lineWidth = 1.5 / viewZoom;
+    // Draw existing anchors and lines between them
+    for (let i = 0; i < anchors.length; i++) {
+      ctx.beginPath();
+      ctx.arc(anchors[i].x, anchors[i].y, 4 / viewZoom, 0, Math.PI * 2);
+      ctx.fillStyle = '#e94560';
+      ctx.fill();
+      if (i > 0) {
+        ctx.beginPath();
+        ctx.moveTo(anchors[i - 1].x, anchors[i - 1].y);
+        ctx.lineTo(anchors[i].x, anchors[i].y);
+        ctx.stroke();
+      }
+    }
+    // Line to current mouse
+    if (anchors.length > 0) {
+      ctx.beginPath();
+      ctx.moveTo(anchors[anchors.length - 1].x, anchors[anchors.length - 1].y);
+      ctx.lineTo(w.x, w.y);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
+    return;
+  }
+
+  if (!dragState) { render(); return; }
+
+  if (dragState.type === 'pan') {
+    viewX = dragState.startVx + (sx - dragState.startSx);
+    viewY = dragState.startVy + (sy - dragState.startSy);
+    render();
+    return;
+  }
+
+  const dx = w.x - dragState.wx, dy = w.y - dragState.wy;
+
+  if (dragState.type === 'move') {
+    for (const st of dragState.starts) {
+      const s = shapes.find(s => s.id === st.id);
+      if (!s) continue;
+      if (s.type === 'point') {
+        s.x = st.x + dx; s.y = st.y + dy;
+      } else if (s.type === 'ellipse') {
+        s.cx = st.cx + dx; s.cy = st.cy + dy;
+        // Recompute tangent attachments for any lines attached to this ellipse
+        for (const ls of shapes) {
+          if (ls.type !== 'line') continue;
+          recomputeTangentParam(ls, 0, s);
+          recomputeTangentParam(ls, 1, s);
+        }
+      } else if (s.type === 'line') {
+        if (!s.attach0) { s.x1 = st.x1 + dx; s.y1 = st.y1 + dy; }
+        if (!s.attach1) { s.x2 = st.x2 + dx; s.y2 = st.y2 + dy; }
+      } else if (s.type === 'bezier') {
+        // Move all points, but attached endpoints will be overridden by syncBezierAttachments
+        for (const k of ['p0', 'p1', 'p2', 'p3']) {
+          if (k === 'p0' && s.attach0) continue; // skip — sync will handle it
+          if (k === 'p3' && s.attach1) continue;
+          // Move control points (p1/p2) together with their anchor
+          if (k === 'p1' && s.attach0) continue;
+          if (k === 'p2' && s.attach1) continue;
+          s[k].x = st[k].x + dx; s[k].y = st[k].y + dy;
+        }
+      }
+    }
+  } else if (dragState.type === 'resizeEllipse') {
+    const s = dragState.shape;
+    const dFromCenter = dist({ x: w.x, y: w.y }, { x: s.cx, y: s.cy });
+    const angle = dragState.angle;
+    if (Math.abs(Math.cos(angle)) > 0.5) {
+      s.rx = Math.max(2, dFromCenter);
+    } else {
+      s.ry = Math.max(2, dFromCenter);
+    }
+    if (keys['Shift']) { s.ry = s.rx; }
+  } else if (dragState.type === 'dragBezierHandle') {
+    const s = dragState.shape;
+    const h = dragState.handle;
+    if (h === 'p0' || h === 'p3') {
+      // Anchor point — try snap/attach
+      const target = findNearestAttachTarget(w.x, w.y, 15, s.id);
+      const attKey = h === 'p0' ? 'attach0' : 'attach1';
+      if (target && target.type === 'ellipse') {
+        // For ellipse, compute tangent param
+        const otherPt = h === 'p0' ? s.p3 : s.p0;
+        const tParam = ellipseTangentParam(
+          target.shape.cx, target.shape.cy, target.shape.rx, target.shape.ry, target.shape.rot,
+          otherPt.x, otherPt.y, target.param
+        );
+        s[attKey] = { shapeId: target.shape.id, param: tParam };
+        const pt = resolveAttachment(s[attKey]);
+        if (pt) { s[h].x = pt.x; s[h].y = pt.y; }
+      } else if (target) {
+        s[attKey] = targetToAttachment(target);
+        const pt = resolveAttachment(s[attKey]);
+        if (pt) { s[h].x = pt.x; s[h].y = pt.y; }
+      } else {
+        s[attKey] = null;
+        s[h].x = w.x; s[h].y = w.y;
+      }
+    } else {
+      // Control point (p1/p2) — free drag
+      s[h].x = w.x; s[h].y = w.y;
+    }
+  } else if (dragState.type === 'dragLineEndpoint') {
+    const s = dragState.shape;
+    const myIdx = dragState.handle === 'p1' ? 0 : 1;
+    const target = findNearestAttachTarget(w.x, w.y, 15, s.id);
+    if (target && target.type === 'ellipse') {
+      const other = getLineEndpoint(s, 1 - myIdx);
+      const curAttach = myIdx === 0 ? s.attach0 : s.attach1;
+      const initParam = curAttach ? curAttach.param : target.param;
+      const tParam = ellipseTangentParam(
+        target.shape.cx, target.shape.cy, target.shape.rx, target.shape.ry, target.shape.rot,
+        other.x, other.y, initParam
+      );
+      const att = { shapeId: target.shape.id, param: tParam };
+      if (myIdx === 0) s.attach0 = att; else s.attach1 = att;
+    } else if (target) {
+      const att = targetToAttachment(target);
+      if (myIdx === 0) s.attach0 = att; else s.attach1 = att;
+    } else {
+      if (myIdx === 0) { s.attach0 = null; s.x1 = w.x; s.y1 = w.y; }
+      else { s.attach1 = null; s.x2 = w.x; s.y2 = w.y; }
+    }
+  } else if (dragState.type === 'rectSelect') {
+    dragState.curWx = w.x; dragState.curWy = w.y;
+  } else if (dragState.type === 'drawEllipse') {
+    // Preview handled in render
+    dragState.curW = w;
+    dragState.shift = dragState.shift || e.shiftKey;
+  } else if (dragState.type === 'drawLine') {
+    dragState.curW = w;
+  }
+
+  render();
+
+  // Draw previews
+  if (dragState.type === 'drawEllipse' && dragState.curW) {
+    ctx.save();
+    ctx.translate(viewX, viewY);
+    ctx.scale(viewZoom, viewZoom);
+    const cx = (dragState.wx + dragState.curW.x) / 2;
+    const cy = (dragState.wy + dragState.curW.y) / 2;
+    let rx = Math.abs(dragState.curW.x - dragState.wx) / 2;
+    let ry = Math.abs(dragState.curW.y - dragState.wy) / 2;
+    if (dragState.shift || e.shiftKey) { rx = ry = Math.max(rx, ry); }
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, Math.max(1, rx), Math.max(1, ry), 0, 0, Math.PI * 2);
+    ctx.strokeStyle = '#e94560';
+    ctx.lineWidth = 1.5 / viewZoom;
+    ctx.setLineDash([4 / viewZoom, 4 / viewZoom]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+  if (dragState.type === 'drawLine' && dragState.curW) {
+    ctx.save();
+    ctx.translate(viewX, viewY);
+    ctx.scale(viewZoom, viewZoom);
+    ctx.beginPath();
+    ctx.moveTo(dragState.wx, dragState.wy);
+    ctx.lineTo(dragState.curW.x, dragState.curW.y);
+    ctx.strokeStyle = '#e94560';
+    ctx.lineWidth = 1.5 / viewZoom;
+    ctx.setLineDash([4 / viewZoom, 4 / viewZoom]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+});
+
+canvas.addEventListener('mouseup', e => {
+  if (!dragState) return;
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  const w = screenToWorld(sx, sy);
+
+  if (dragState.type === 'pan') {
+    canvas.style.cursor = 'crosshair';
+    dragState = null;
+    return;
+  }
+
+  if (dragState.type === 'rectSelect') {
+    selectInRect(dragState.wx, dragState.wy, w.x, w.y);
+    updatePropsPanel();
+  }
+
+  if (dragState.type === 'drawEllipse') {
+    const cx = (dragState.wx + w.x) / 2;
+    const cy = (dragState.wy + w.y) / 2;
+    let rx = Math.abs(w.x - dragState.wx) / 2;
+    let ry = Math.abs(w.y - dragState.wy) / 2;
+    if (dragState.shift || e.shiftKey) { rx = ry = Math.max(rx, ry); }
+    if (rx > 2 && ry > 2) {
+      pushUndo();
+      const el = makeEllipse(cx, cy, rx, ry);
+      shapes.push(el);
+      selectNone();
+      selectShape(el);
+      updatePropsPanel();
+    }
+  }
+
+  if (dragState.type === 'drawLine') {
+    if (dist({ x: dragState.wx, y: dragState.wy }, w) > 5 / viewZoom) {
+      pushUndo();
+      const ln = makeLine(dragState.wx, dragState.wy, w.x, w.y);
+      const att0 = findNearestAttachTarget(dragState.wx, dragState.wy, 15, ln.id);
+      const att1 = findNearestAttachTarget(w.x, w.y, 15, ln.id);
+      if (att0 && att0.type === 'ellipse') {
+        const otherPt = att1 && att1.type === 'ellipse'
+          ? ellipsePoint(att1.shape.cx, att1.shape.cy, att1.shape.rx, att1.shape.ry, att1.shape.rot, att1.param)
+          : w;
+        const tParam = ellipseTangentParam(
+          att0.shape.cx, att0.shape.cy, att0.shape.rx, att0.shape.ry, att0.shape.rot,
+          otherPt.x, otherPt.y, att0.param
+        );
+        ln.attach0 = { shapeId: att0.shape.id, param: tParam };
+      } else if (att0) {
+        ln.attach0 = targetToAttachment(att0);
+      }
+      if (att1 && att1.type === 'ellipse') {
+        const otherPt = att0 && att0.type === 'ellipse'
+          ? ellipsePoint(att0.shape.cx, att0.shape.cy, att0.shape.rx, att0.shape.ry, att0.shape.rot, ln.attach0 ? ln.attach0.param : att0.param)
+          : { x: dragState.wx, y: dragState.wy };
+        const tParam = ellipseTangentParam(
+          att1.shape.cx, att1.shape.cy, att1.shape.rx, att1.shape.ry, att1.shape.rot,
+          otherPt.x, otherPt.y, att1.param
+        );
+        ln.attach1 = { shapeId: att1.shape.id, param: tParam };
+      } else if (att1) {
+        ln.attach1 = targetToAttachment(att1);
+      }
+      shapes.push(ln);
+      selectNone();
+      selectShape(ln);
+      updatePropsPanel();
+    }
+  }
+
+  // Don't clear polyBezier state on mouseup — it continues on click
+  if (dragState && dragState.type === 'polyBezier') {
+    render();
+    return;
+  }
+
+  // Push undo for move operations
+  if (dragState && dragState.type === 'move') {
+    // Undo was implicitly captured at start; we push before starting the drag
+  }
+
+  dragState = null;
+  render();
+});
+
+function findNearestEllipse(wx, wy, threshold = 15) {
+  const thr = threshold / viewZoom;
+  for (const s of shapes) {
+    if (s.type !== 'ellipse') continue;
+    const t = ellipseClosestParam(s.cx, s.cy, s.rx, s.ry, s.rot, wx, wy);
+    const ep = ellipsePoint(s.cx, s.cy, s.rx, s.ry, s.rot, t);
+    if (dist({ x: wx, y: wy }, ep) < thr) {
+      return { shape: s, param: t };
+    }
+  }
+  return null;
+}
+
+// Find nearest attach target for line/bezier endpoints.
+// Returns {type, shape, ...} or null.
+// excludeId: shape ID to exclude (the shape being dragged)
+function findNearestAttachTarget(wx, wy, threshold = 15, excludeId = null) {
+  const thr = threshold / viewZoom;
+  const w = { x: wx, y: wy };
+
+  // Points first (precise anchors)
+  for (const s of shapes) {
+    if (s.id === excludeId || s.type !== 'point') continue;
+    if (dist(w, { x: s.x, y: s.y }) < thr) {
+      return { type: 'point', shape: s };
+    }
+  }
+  // Line endpoints
+  for (const s of shapes) {
+    if (s.id === excludeId || s.type !== 'line') continue;
+    const ep0 = getLineEndpoint(s, 0);
+    const ep1 = getLineEndpoint(s, 1);
+    if (dist(w, ep0) < thr) return { type: 'lineEndpoint', shape: s, endpointIdx: 0 };
+    if (dist(w, ep1) < thr) return { type: 'lineEndpoint', shape: s, endpointIdx: 1 };
+  }
+  // Bezier anchor points
+  for (const s of shapes) {
+    if (s.id === excludeId || s.type !== 'bezier') continue;
+    if (dist(w, s.p0) < thr) return { type: 'bezierEndpoint', shape: s, endpointKey: 'p0' };
+    if (dist(w, s.p3) < thr) return { type: 'bezierEndpoint', shape: s, endpointKey: 'p3' };
+  }
+  // Ellipses
+  for (const s of shapes) {
+    if (s.id === excludeId || s.type !== 'ellipse') continue;
+    const t = ellipseClosestParam(s.cx, s.cy, s.rx, s.ry, s.rot, wx, wy);
+    const ep = ellipsePoint(s.cx, s.cy, s.rx, s.ry, s.rot, t);
+    if (dist(w, ep) < thr) {
+      return { type: 'ellipse', shape: s, param: t };
+    }
+  }
+  return null;
+}
+
+// Get tangent direction at a shape endpoint (normalized).
+// Returns {x, y} pointing AWAY from the endpoint along the shape, or null.
+function getEndpointTangent(shape, endIdx) {
+  if (shape.type === 'line') {
+    const p0 = getLineEndpoint(shape, 0), p1 = getLineEndpoint(shape, 1);
+    const dx = p1.x - p0.x, dy = p1.y - p0.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-6) return null;
+    // endIdx 0 → tangent points from p0 toward p1; endIdx 1 → from p1 toward p0
+    if (endIdx === 0) return { x: dx / len, y: dy / len };
+    return { x: -dx / len, y: -dy / len };
+  }
+  if (shape.type === 'bezier') {
+    // Tangent at p0 is direction p0→p1; at p3 is direction p3→p2
+    const isStart = (endIdx === 'p0' || endIdx === 0);
+    const key = isStart ? 'p0' : 'p3';
+    const cpKey = isStart ? 'p1' : 'p2';
+    const dx = shape[cpKey].x - shape[key].x, dy = shape[cpKey].y - shape[key].y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-6) return null;
+    return { x: dx / len, y: dy / len };
+  }
+  return null;
+}
+
+// Convert an attach target to an attachment object for storage on a line.
+function targetToAttachment(target) {
+  if (!target) return null;
+  if (target.type === 'ellipse') return { shapeId: target.shape.id, param: target.param };
+  if (target.type === 'point') return { shapeId: target.shape.id, param: null };
+  if (target.type === 'lineEndpoint') return { shapeId: target.shape.id, endpointIdx: target.endpointIdx };
+  if (target.type === 'bezierEndpoint') return { shapeId: target.shape.id, endpointKey: target.endpointKey };
+  return null;
+}
+
+// ============================================================
+// ALIGN & DISTRIBUTE
+// ============================================================
+
+function shapeCenter(s) {
+  if (s.type === 'point') return { x: s.x, y: s.y };
+  if (s.type === 'ellipse') return { x: s.cx, y: s.cy };
+  if (s.type === 'line') {
+    const p1 = getLineEndpoint(s, 0), p2 = getLineEndpoint(s, 1);
+    return { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+  }
+  if (s.type === 'bezier') return { x: (s.p0.x + s.p3.x) / 2, y: (s.p0.y + s.p3.y) / 2 };
+  return { x: 0, y: 0 };
+}
+
+function moveShape(s, dx, dy) {
+  if (s.type === 'point') { s.x += dx; s.y += dy; }
+  else if (s.type === 'ellipse') { s.cx += dx; s.cy += dy; }
+  else if (s.type === 'line') {
+    if (!s.attach0) { s.x1 += dx; s.y1 += dy; }
+    if (!s.attach1) { s.x2 += dx; s.y2 += dy; }
+  }
+  else if (s.type === 'bezier') {
+    for (const k of ['p0', 'p1', 'p2', 'p3']) { s[k].x += dx; s[k].y += dy; }
+  }
+}
+
+function alignHorizontal() {
+  const sel = getSelected();
+  if (sel.length < 2) return;
+  pushUndo();
+  const avgY = sel.reduce((s, sh) => s + shapeCenter(sh).y, 0) / sel.length;
+  for (const s of sel) {
+    const c = shapeCenter(s);
+    moveShape(s, 0, avgY - c.y);
+  }
+  render();
+}
+
+function alignVertical() {
+  const sel = getSelected();
+  if (sel.length < 2) return;
+  pushUndo();
+  const avgX = sel.reduce((s, sh) => s + shapeCenter(sh).x, 0) / sel.length;
+  for (const s of sel) {
+    const c = shapeCenter(s);
+    moveShape(s, avgX - c.x, 0);
+  }
+  render();
+}
+
+function distributeHorizontal() {
+  const sel = getSelected();
+  if (sel.length < 3) return;
+  pushUndo();
+  sel.sort((a, b) => shapeCenter(a).x - shapeCenter(b).x);
+  const spacingInput = document.getElementById('dist-spacing').value;
+  const minX = shapeCenter(sel[0]).x;
+  const maxX = shapeCenter(sel[sel.length - 1]).x;
+  let gap;
+  if (spacingInput !== '') {
+    gap = parseFloat(spacingInput);
+  } else {
+    gap = (maxX - minX) / (sel.length - 1);
+  }
+  for (let i = 1; i < sel.length - 1; i++) {
+    const targetX = spacingInput !== '' ? minX + i * gap : minX + i * gap;
+    const c = shapeCenter(sel[i]);
+    moveShape(sel[i], targetX - c.x, 0);
+  }
+  // If explicit spacing, also move the last one
+  if (spacingInput !== '') {
+    const targetX = minX + (sel.length - 1) * gap;
+    const c = shapeCenter(sel[sel.length - 1]);
+    moveShape(sel[sel.length - 1], targetX - c.x, 0);
+  }
+  render();
+}
+
+function distributeVertical() {
+  const sel = getSelected();
+  if (sel.length < 3) return;
+  pushUndo();
+  sel.sort((a, b) => shapeCenter(a).y - shapeCenter(b).y);
+  const spacingInput = document.getElementById('dist-spacing').value;
+  const minY = shapeCenter(sel[0]).y;
+  const maxY = shapeCenter(sel[sel.length - 1]).y;
+  let gap;
+  if (spacingInput !== '') {
+    gap = parseFloat(spacingInput);
+  } else {
+    gap = (maxY - minY) / (sel.length - 1);
+  }
+  for (let i = 1; i < sel.length - 1; i++) {
+    const targetY = minY + i * gap;
+    const c = shapeCenter(sel[i]);
+    moveShape(sel[i], 0, targetY - c.y);
+  }
+  if (spacingInput !== '') {
+    const targetY = minY + (sel.length - 1) * gap;
+    const c = shapeCenter(sel[sel.length - 1]);
+    moveShape(sel[sel.length - 1], 0, targetY - c.y);
+  }
+  render();
+}
+
+// ============================================================
+// TRIM
+// ============================================================
+// Trims are stored on each shape as ranges of the parameter space to hide.
+// For ellipses: trims are angle ranges [{from, to}]
+// For lines: trims are t-value ranges [{from, to}] in [0,1]
+// For beziers: trims are t-value ranges [{from, to}] in [0,1]
+// When geometry moves, trims that reference intersection points are
+// recomputed by finding the new intersection.
+
+function findTrimSegments(shape) {
+  // Find all intersection parameters on this shape with all other shapes.
+  // Returns sorted array of parameter values where intersections occur.
+  const params = [];
+  const mySegs = shapeSegments(shape);
+
+  for (const other of shapes) {
+    if (other.id === shape.id) continue;
+    const otherSegs = shapeSegments(other);
+    for (const ms of mySegs) {
+      for (const os of otherSegs) {
+        const hit = segSegIntersect(ms.a, ms.b, os.a, os.b);
+        if (hit) {
+          // Convert to shape parameter
+          if (shape.type === 'ellipse') {
+            const t = ellipseClosestParam(shape.cx, shape.cy, shape.rx, shape.ry, shape.rot, hit.x, hit.y);
+            params.push(t);
+          } else if (shape.type === 'line') {
+            params.push(hit.t);  // t along the line segment
+          } else if (shape.type === 'bezier') {
+            // Find closest t on bezier with fine sampling + refinement
+            const N = 128;
+            let bestT = 0, bestD = Infinity;
+            for (let i = 0; i <= N; i++) {
+              const t = i / N;
+              const p = bezierPoint(shape.p0, shape.p1, shape.p2, shape.p3, t);
+              const d = dist(hit, p);
+              if (d < bestD) { bestD = d; bestT = t; }
+            }
+            // Newton-style refinement
+            for (let iter = 0; iter < 8; iter++) {
+              const dt = 0.0005;
+              const pm = bezierPoint(shape.p0, shape.p1, shape.p2, shape.p3, Math.max(0, bestT - dt));
+              const pp = bezierPoint(shape.p0, shape.p1, shape.p2, shape.p3, Math.min(1, bestT + dt));
+              const dm = dist(hit, pm), dp = dist(hit, pp);
+              if (dm < dp) bestT = Math.max(0, bestT - dt);
+              else bestT = Math.min(1, bestT + dt);
+            }
+            params.push(bestT);
+          }
+        }
+      }
+    }
+  }
+
+  // Also add tangent attachment points for lines
+  if (shape.type === 'ellipse') {
+    for (const ls of shapes) {
+      if (ls.type !== 'line') continue;
+      if (ls.attach0 && ls.attach0.shapeId === shape.id) params.push(ls.attach0.param);
+      if (ls.attach1 && ls.attach1.shapeId === shape.id) params.push(ls.attach1.param);
+    }
+  }
+
+  // Point shapes create trim boundaries where they sit on or near the shape
+  const ptSnap = 8; // fixed world coords
+  for (const pt of shapes) {
+    if (pt.type !== 'point') continue;
+    if (shape.type === 'ellipse') {
+      const t = ellipseClosestParam(shape.cx, shape.cy, shape.rx, shape.ry, shape.rot, pt.x, pt.y);
+      const ep = ellipsePoint(shape.cx, shape.cy, shape.rx, shape.ry, shape.rot, t);
+      if (dist(ep, { x: pt.x, y: pt.y }) < ptSnap) params.push(t);
+    } else if (shape.type === 'line') {
+      const p1 = getLineEndpoint(shape, 0), p2 = getLineEndpoint(shape, 1);
+      const len2 = (p2.x-p1.x)**2 + (p2.y-p1.y)**2;
+      if (len2 > 0) {
+        const t = ((pt.x-p1.x)*(p2.x-p1.x) + (pt.y-p1.y)*(p2.y-p1.y)) / len2;
+        if (t > 0.01 && t < 0.99) {
+          const proj = lerp(p1, p2, t);
+          if (dist(proj, { x: pt.x, y: pt.y }) < ptSnap) params.push(t);
+        }
+      }
+    } else if (shape.type === 'bezier') {
+      const N = 128;
+      let bestT = -1, bestD = ptSnap;
+      for (let i = 0; i <= N; i++) {
+        const t = i / N;
+        const bp = bezierPoint(shape.p0, shape.p1, shape.p2, shape.p3, t);
+        const d = dist(bp, { x: pt.x, y: pt.y });
+        if (d < bestD) { bestD = d; bestT = t; }
+      }
+      if (bestT >= 0) params.push(bestT);
+    }
+  }
+
+  params.sort((a, b) => a - b);
+  // Deduplicate close values
+  const deduped = [];
+  for (const p of params) {
+    if (deduped.length === 0 || Math.abs(p - deduped[deduped.length - 1]) > 0.01) {
+      deduped.push(p);
+    }
+  }
+  return deduped;
+}
+
+function buildTrimArcSegments(shape) {
+  // Returns array of {from, to, midParam} — the arcs between intersection points.
+  // For ellipse: wraps around 2*PI. For line/bezier: 0..1.
+  const params = findTrimSegments(shape);
+  if (params.length < 1) return [];
+
+  const arcs = [];
+  if (shape.type === 'ellipse') {
+    // Wrap around: add segments between consecutive params, including wrap
+    for (let i = 0; i < params.length; i++) {
+      const from = params[i];
+      const to = params[(i + 1) % params.length];
+      const mid = i < params.length - 1
+        ? (from + to) / 2
+        : from + ((to + 2 * Math.PI - from) % (2 * Math.PI)) / 2;
+      arcs.push({ from, to: i < params.length - 1 ? to : to + 2 * Math.PI, midParam: mid });
+    }
+  } else {
+    // Line/bezier: segments between params, plus 0..first and last..1
+    const allP = [0, ...params, 1];
+    for (let i = 0; i < allP.length - 1; i++) {
+      if (allP[i + 1] - allP[i] > 0.005) {
+        arcs.push({ from: allP[i], to: allP[i + 1], midParam: (allP[i] + allP[i + 1]) / 2 });
+      }
+    }
+  }
+  return arcs;
+}
+
+function toggleTrim(shape, arcSeg) {
+  pushUndo();
+  // Check if this arc is already trimmed
+  const idx = shape.trims.findIndex(t =>
+    Math.abs(t.from - arcSeg.from) < 0.05 && Math.abs(t.to - arcSeg.to) < 0.05
+  );
+  if (idx >= 0) {
+    shape.trims.splice(idx, 1);  // untrim
+  } else {
+    shape.trims.push({ from: arcSeg.from, to: arcSeg.to });
+  }
+  render();
+}
+
+// Recompute trim boundaries to match current live geometry.
+// For ellipses: snap each trim boundary to the nearest current attachment param
+// or intersection point, so the arc always meets the tangent lines exactly.
+function refreshTrims(shape) {
+  if (!shape.trims || shape.trims.length === 0) return;
+
+  // Gather current boundary params (fast path: just attachment params + point snaps)
+  const params = [];
+  if (shape.type === 'ellipse') {
+    // Live tangent attachment params
+    for (const ls of shapes) {
+      if (ls.type !== 'line' && ls.type !== 'bezier') continue;
+      for (const att of [ls.attach0, ls.attach1]) {
+        if (att && att.shapeId === shape.id && att.param != null) {
+          params.push(att.param);
+        }
+      }
+    }
+    // Point-on-ellipse snaps
+    for (const pt of shapes) {
+      if (pt.type !== 'point') continue;
+      const t = ellipseClosestParam(shape.cx, shape.cy, shape.rx, shape.ry, shape.rot, pt.x, pt.y);
+      const ep = ellipsePoint(shape.cx, shape.cy, shape.rx, shape.ry, shape.rot, t);
+      if (dist(ep, { x: pt.x, y: pt.y }) < 8) params.push(t);
+    }
+  }
+
+  // For non-ellipse shapes, or if no fast-path params found, use full intersection search
+  if (params.length === 0) {
+    const fullParams = findTrimSegments(shape);
+    params.push(...fullParams);
+  }
+
+  if (params.length === 0) return;
+
+  const isEllipse = shape.type === 'ellipse';
+  function nearestParam(val) {
+    let best = params[0], bestD = Infinity;
+    for (const p of params) {
+      let d;
+      if (isEllipse) {
+        d = Math.abs(((val - p) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI);
+      } else {
+        d = Math.abs(val - p);
+      }
+      if (d < bestD) { bestD = d; best = p; }
+    }
+    return best;
+  }
+
+  for (const trim of shape.trims) {
+    trim.from = nearestParam(trim.from);
+    trim.to = nearestParam(trim.to);
+  }
+}
+
+function isParamTrimmed(shape, t) {
+  for (const trim of shape.trims) {
+    if (shape.type === 'ellipse') {
+      // Handle angle wrapping
+      let from = trim.from % (2 * Math.PI);
+      let to = trim.to % (2 * Math.PI);
+      let tt = ((t % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      if (from < 0) from += 2 * Math.PI;
+      if (to < 0) to += 2 * Math.PI;
+      if (from <= to) {
+        if (tt >= from && tt <= to) return true;
+      } else {
+        if (tt >= from || tt <= to) return true;
+      }
+    } else {
+      if (t >= trim.from && t <= trim.to) return true;
+    }
+  }
+  return false;
+}
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+
+  // Escape: cancel current action or deselect
+  if (e.code === 'Escape') {
+    if (dragState && dragState.type === 'polyBezier') {
+      // Cancel multi-point bezier
+      dragState = null;
+    } else {
+      tool = 'select';
+      dragState = null;
+      selectNone();
+      updatePropsPanel();
+      setActiveTool('select');
+    }
+    render();
+    return;
+  }
+
+  // Enter: finish multi-point bezier
+  if (e.code === 'Enter' && dragState && dragState.type === 'polyBezier') {
+    finishPolyBezier();
+    render();
+    return;
+  }
+
+  // Ctrl+Z: undo
+  if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
+    e.preventDefault();
+    undo();
+    return;
+  }
+
+  // Ctrl+C / Ctrl+V / Ctrl+A
+  if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') { copySelected(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.code === 'KeyV') { paste(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.code === 'KeyA') { e.preventDefault(); shapes.forEach(s => s.selected = true); updatePropsPanel(); render(); return; }
+
+  // Skip tool shortcuts if ctrl/meta held
+  if (e.ctrlKey || e.metaKey) { render(); return; }
+
+  // Tool shortcuts
+  if (e.code === 'KeyV') { setActiveTool('select'); }
+  else if (e.code === 'KeyE') { setActiveTool('ellipse'); }
+  else if (e.code === 'KeyL') { setActiveTool('line'); }
+  else if (e.code === 'KeyB' && !dragState) { setActiveTool('bezier'); }
+  else if (e.code === 'KeyT') { setActiveTool('trim'); }
+  else if (e.code === 'KeyP') { setActiveTool('point'); }
+  else if (e.code === 'KeyF') { setActiveTool('paint'); }
+
+  // Delete
+  else if (e.code === 'Delete' || e.code === 'Backspace') {
+    // Delete hovered crossing first, then selected shapes
+    if (hoverCrossing) {
+      pushUndo();
+      crossings = crossings.filter(c => c !== hoverCrossing);
+      hoverCrossing = null;
+    } else {
+      deleteSelected();
+    }
+  }
+
+  // C to toggle crossing
+  else if (e.code === 'KeyC') {
+    if (hoverCrossing) {
+      pushUndo();
+      hoverCrossing.overA = !hoverCrossing.overA;
+    }
+  }
+
+  // Align: J = horizontal (same Y), K = vertical (same X)
+  else if (e.code === 'KeyJ') { alignHorizontal(); }
+  else if (e.code === 'KeyK') { alignVertical(); }
+
+  // Distribute: H = horizontal, D = vertical
+  else if (e.code === 'KeyH') { distributeHorizontal(); }
+  else if (e.code === 'KeyD') { distributeVertical(); }
+
+  render();
+});
+
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+function finishPolyBezier() {
+  if (!dragState || dragState.type !== 'polyBezier') return;
+  const anchors = dragState.anchors;
+  const startSnap = dragState.startSnap;
+  const endSnap = dragState.endSnap;
+  const startAttach = dragState.startAttach;
+  const endAttach = dragState.endAttach;
+  if (anchors.length < 2) { dragState = null; return; }
+  pushUndo();
+  const result = makePolyBezier(anchors);
+
+  const beziers = Array.isArray(result) ? result : (result ? [result] : []);
+
+  // Apply tangent snapping to first/last control points
+  if (beziers.length > 0 && startSnap) {
+    const first = beziers[0];
+    const cpDist = dist(first.p0, first.p1);
+    first.p1 = {
+      x: first.p0.x + startSnap.tx * cpDist,
+      y: first.p0.y + startSnap.ty * cpDist
+    };
+  }
+  if (beziers.length > 0 && endSnap) {
+    const last = beziers[beziers.length - 1];
+    const cpDist = dist(last.p3, last.p2);
+    last.p2 = {
+      x: last.p3.x + endSnap.tx * cpDist,
+      y: last.p3.y + endSnap.ty * cpDist
+    };
+  }
+
+  // Store attachments on first/last bezier segments
+  if (beziers.length > 0 && startAttach) {
+    beziers[0].attach0 = startAttach;
+  }
+  if (beziers.length > 0 && endAttach) {
+    beziers[beziers.length - 1].attach1 = endAttach;
+  }
+
+  selectNone();
+  for (const bz of beziers) {
+    shapes.push(bz);
+    selectShape(bz);
+  }
+  dragState = null;
+  updatePropsPanel();
+}
+
+function deleteSelected() {
+  const sel = getSelected();
+  if (sel.length === 0) return;
+  pushUndo();
+  const selIds = new Set(sel.map(s => s.id));
+  // Remove attachments referencing deleted shapes
+  for (const s of shapes) {
+    if (s.type === 'line' || s.type === 'bezier') {
+      if (s.attach0 && selIds.has(s.attach0.shapeId)) s.attach0 = null;
+      if (s.attach1 && selIds.has(s.attach1.shapeId)) s.attach1 = null;
+    }
+  }
+  // Remove crossings involving deleted shapes
+  crossings = crossings.filter(c => !selIds.has(c.shapeA_id) && !selIds.has(c.shapeB_id));
+  shapes = shapes.filter(s => !s.selected);
+  updatePropsPanel();
+  render();
+}
+
+function setActiveTool(t) {
+  tool = t;
+  document.querySelectorAll('#toolbar button[data-tool]').forEach(b => {
+    b.classList.toggle('active', b.dataset.tool === t);
+  });
+  canvas.style.cursor = t === 'select' ? 'default' : 'crosshair';
+}
+
+// Toolbar buttons
+document.querySelectorAll('#toolbar button[data-tool]').forEach(b => {
+  b.addEventListener('click', () => setActiveTool(b.dataset.tool));
+});
+document.getElementById('btn-delete').addEventListener('click', deleteSelected);
+document.getElementById('btn-find-crossings').addEventListener('click', findAllCrossings);
+document.getElementById('btn-clear-crossings').addEventListener('click', () => {
+  pushUndo();
+  crossings = [];
+  render();
+});
+document.getElementById('btn-align-h').addEventListener('click', alignHorizontal);
+document.getElementById('btn-align-v').addEventListener('click', alignVertical);
+document.getElementById('btn-dist-h').addEventListener('click', distributeHorizontal);
+document.getElementById('btn-dist-v').addEventListener('click', distributeVertical);
+document.getElementById('btn-export-tikz').addEventListener('click', exportTikZ);
+
+// Color palette
+function setSelectedColor(idx) {
+  selectedColorIdx = idx;
+  document.querySelectorAll('.color-swatch, .color-swatch-none').forEach(el => el.classList.remove('active'));
+  if (idx === null) {
+    document.getElementById('swatch-none').classList.add('active');
+  } else {
+    document.getElementById(`swatch-${idx}`)?.classList.add('active');
+  }
+}
+document.getElementById('swatch-none').addEventListener('click', () => {
+  setSelectedColor(null);
+  setActiveTool('paint');
+});
+for (let i = 0; i < 7; i++) {
+  document.getElementById(`swatch-${i}`).addEventListener('click', () => {
+    setSelectedColor(i);
+    setActiveTool('paint');
+  });
+}
+
+// ============================================================
+// SAVE / LOAD GEOMETRY
+// ============================================================
+
+function serializeGeometry() {
+  return JSON.stringify({ shapes, crossings, nextId, viewX, viewY, viewZoom }, null, 2);
+}
+
+function deserializeGeometry(json) {
+  const data = JSON.parse(json);
+  shapes = data.shapes || [];
+  crossings = data.crossings || [];
+  nextId = data.nextId || shapes.length + 1;
+  if (data.viewX != null) viewX = data.viewX;
+  if (data.viewY != null) viewY = data.viewY;
+  if (data.viewZoom != null) viewZoom = data.viewZoom;
+  updatePropsPanel();
+  render();
+}
+
+document.getElementById('btn-save-geom').addEventListener('click', () => {
+  const json = serializeGeometry();
+  // Try server save first
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const filename = `knit_geom_${ts}.json`;
+  fetch('/save-tikz', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: json, filename: filename })
+  }).then(r => r.ok ? r.json() : Promise.reject()).then(data => {
+    setTikzStatus(`Geometry saved to ${data.path}`);
+  }).catch(() => {
+    // Fallback: download
+    const blob = new Blob([json], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    setTikzStatus(`Downloaded ${filename}`);
+  });
+});
+
+document.getElementById('btn-load-geom').addEventListener('click', () => {
+  document.getElementById('load-geom-file').click();
+});
+
+document.getElementById('load-geom-file').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      pushUndo();
+      const text = ev.target.result;
+      if (file.name.endsWith('.json')) {
+        deserializeGeometry(text);
+        setTikzStatus(`Loaded ${file.name} — ${shapes.length} shapes, ${crossings.length} crossings`);
+      } else {
+        // .tex / .tikz import
+        const imported = parseTikZToShapes(text);
+        if (imported.length === 0) {
+          alert('No shapes found in .tex file');
+          return;
+        }
+        shapes = imported;
+        crossings = [];
+        // Auto-fit view to imported shapes
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const s of shapes) {
+          const c = shapeCenter(s);
+          minX = Math.min(minX, c.x - 200);
+          maxX = Math.max(maxX, c.x + 200);
+          minY = Math.min(minY, c.y - 200);
+          maxY = Math.max(maxY, c.y + 200);
+        }
+        const cw = canvas.width / devicePixelRatio;
+        const ch = canvas.height / devicePixelRatio;
+        const scaleX = cw / (maxX - minX);
+        const scaleY = ch / (maxY - minY);
+        viewZoom = Math.min(scaleX, scaleY) * 0.85;
+        viewX = cw / 2 - ((minX + maxX) / 2) * viewZoom;
+        viewY = ch / 2 - ((minY + maxY) / 2) * viewZoom;
+        updatePropsPanel();
+        render();
+        setTikzStatus(`Imported ${imported.length} shapes from ${file.name}`);
+      }
+    } catch (err) {
+      alert('Failed to load: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+// ============================================================
+// IMPORT FROM TIKZ
+// ============================================================
+
+function parseTikZToShapes(tex) {
+  // Reverse the TikZ export transform:
+  // TikZ coords = world * TIKZ_SCALE, Y flipped
+  // So world.x = tikz.x / TIKZ_SCALE, world.y = -tikz.y / TIKZ_SCALE
+  const sc = TIKZ_SCALE;
+  const wx = (tx) => tx / sc;
+  const wy = (ty) => -ty / sc;
+
+  const imported = [];
+
+  // Match all \draw commands (possibly spanning multiple lines)
+  // Collapse to single lines first
+  const lines = tex.replace(/\n\s*/g, ' ').match(/\\draw\[[^\]]*\][^;]*;/g) || [];
+
+  for (const line of lines) {
+    // Skip yarnbg (crossing gap overlays)
+    if (line.includes('yarnbg')) continue;
+
+    // --- Ellipse: (cx,cy) ellipse[x radius=rx, y radius=ry, rotate=rot] ---
+    const ellRe = /\(([^,]+),([^)]+)\)\s*ellipse\s*\[\s*x\s*radius\s*=\s*([^,]+),\s*y\s*radius\s*=\s*([^,]+),\s*rotate\s*=\s*([^\]]+)\]/;
+    const em = line.match(ellRe);
+    if (em) {
+      const cx = wx(parseFloat(em[1]));
+      const cy = wy(parseFloat(em[2]));
+      const rx = parseFloat(em[3]) / sc;
+      const ry = parseFloat(em[4]) / sc;
+      const rotDeg = parseFloat(em[5]);
+      imported.push(makeEllipse(cx, cy, rx, ry, rotDeg * Math.PI / 180));
+      continue;
+    }
+
+    // --- Bezier: (x0,y0) .. controls (x1,y1) and (x2,y2) .. (x3,y3) ---
+    const bezRe = /\(([^,]+),([^)]+)\)\s*\.\.\s*controls\s*\(([^,]+),([^)]+)\)\s*and\s*\(([^,]+),([^)]+)\)\s*\.\.\s*\(([^,]+),([^)]+)\)/;
+    const bm = line.match(bezRe);
+    if (bm) {
+      imported.push(makeBezier(
+        { x: wx(parseFloat(bm[1])), y: wy(parseFloat(bm[2])) },
+        { x: wx(parseFloat(bm[3])), y: wy(parseFloat(bm[4])) },
+        { x: wx(parseFloat(bm[5])), y: wy(parseFloat(bm[6])) },
+        { x: wx(parseFloat(bm[7])), y: wy(parseFloat(bm[8])) }
+      ));
+      continue;
+    }
+
+    // --- Line: (x1,y1) -- (x2,y2) ---
+    const lineRe = /\(([^,]+),([^)]+)\)\s*--\s*\(([^,]+),([^)]+)\)/;
+    const lm = line.match(lineRe);
+    if (lm) {
+      imported.push(makeLine(
+        wx(parseFloat(lm[1])), wy(parseFloat(lm[2])),
+        wx(parseFloat(lm[3])), wy(parseFloat(lm[4]))
+      ));
+      continue;
+    }
+  }
+
+  return imported;
+}
+
+document.getElementById('btn-import-tikz').addEventListener('click', () => {
+  // Reuse the same file input but in .tex mode
+  const input = document.getElementById('load-geom-file');
+  input.accept = '.tex,.tikz,.json';
+  input.click();
+});
+
+// Expose for console access: copy(serializeGeometry()) to get JSON in clipboard
+window.serializeGeometry = serializeGeometry;
+window.deserializeGeometry = deserializeGeometry;
+
+// ============================================================
+// TIKZ PANEL
+// ============================================================
+
+const tikzCode = document.getElementById('tikz-code');
+const tikzPreview = document.getElementById('tikz-preview-wrap');
+
+function setTikzStatus(msg) {
+  document.getElementById('tikz-status').textContent = msg;
+}
+
+// Toggle panel
+document.getElementById('tikz-toggle').addEventListener('click', () => {
+  const panel = document.getElementById('tikz-panel');
+  panel.classList.toggle('collapsed');
+  setTimeout(resizeCanvas, 50);
+});
+
+// Generate TikZ from canvas
+document.getElementById('btn-gen-tikz').addEventListener('click', () => {
+  const tikz = generateTikZ();
+  tikzCode.value = tikz;
+  setTikzStatus(`Generated ${tikz.length} chars from ${shapes.length} shapes`);
+});
+
+// Copy TikZ
+document.getElementById('btn-copy-tikz').addEventListener('click', () => {
+  navigator.clipboard.writeText(tikzCode.value).then(() => {
+    setTikzStatus('Copied to clipboard');
+  });
+});
+
+// Save TikZ to disk via local server
+document.getElementById('btn-save-tikz').addEventListener('click', async () => {
+  const code = tikzCode.value;
+  const fullDoc = `\\documentclass[11pt]{article}
+\\usepackage[margin=0.5in]{geometry}
+\\usepackage{tikz}
+\\usetikzlibrary{calc, decorations.markings, arrows.meta}
+\\begin{document}
+${code}
+\\end{document}
+`;
+  try {
+    const resp = await fetch('/save-tikz', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: fullDoc })
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      setTikzStatus(`Saved to ${data.path}`);
+    } else {
+      throw new Error(`Server returned ${resp.status}`);
+    }
+  } catch (e) {
+    // Fallback: download as file
+    const blob = new Blob([fullDoc], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'knit_editor_output.tex';
+    a.click();
+    setTikzStatus('Downloaded as knit_editor_output.tex (start server for direct save)');
+  }
+});
+
+// Render TikZ preview using tikzjax
+let tikzjaxLoaded = false;
+let tikzjaxLoading = false;
+
+function loadTikzJax() {
+  return new Promise((resolve, reject) => {
+    if (tikzjaxLoaded) { resolve(); return; }
+    if (tikzjaxLoading) {
+      // Wait for it
+      const check = setInterval(() => {
+        if (tikzjaxLoaded) { clearInterval(check); resolve(); }
+      }, 200);
+      return;
+    }
+    tikzjaxLoading = true;
+    setTikzStatus('Loading TikZ renderer...');
+
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.type = 'text/css';
+    link.href = 'https://tikzjax.com/v1/fonts.css';
+    document.head.appendChild(link);
+
+    const script = document.createElement('script');
+    script.src = 'https://tikzjax.com/v1/tikzjax.js';
+    script.onload = () => {
+      tikzjaxLoaded = true;
+      setTikzStatus('TikZ renderer loaded');
+      resolve();
+    };
+    script.onerror = () => {
+      tikzjaxLoading = false;
+      setTikzStatus('Failed to load tikzjax. Falling back to server rendering.');
+      reject(new Error('tikzjax load failed'));
+    };
+    document.head.appendChild(script);
+  });
+}
+
+document.getElementById('btn-render-tikz').addEventListener('click', async () => {
+  const code = tikzCode.value.trim();
+  if (!code) { setTikzStatus('No TikZ code to render'); return; }
+
+  // Try tikzjax first
+  try {
+    await loadTikzJax();
+    // tikzjax renders <script type="text/tikz"> elements
+    tikzPreview.innerHTML = '';
+    const scriptEl = document.createElement('script');
+    scriptEl.type = 'text/tikz';
+    scriptEl.textContent = code;
+    tikzPreview.appendChild(scriptEl);
+
+    // tikzjax auto-processes on mutation, but we may need to trigger it
+    if (window.tikzjax) {
+      window.tikzjax();
+    }
+    setTikzStatus('Rendering with tikzjax...');
+
+    // Check for SVG output after a delay
+    setTimeout(() => {
+      const svg = tikzPreview.querySelector('svg');
+      if (svg) {
+        setTikzStatus('Preview rendered');
+      } else {
+        setTikzStatus('Rendering... (may take a moment)');
+      }
+    }, 2000);
+
+  } catch (e) {
+    // Fallback: try local server rendering
+    setTikzStatus('Trying server-side rendering...');
+    try {
+      const resp = await fetch('/render-tikz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tikz: code })
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.svg) {
+          tikzPreview.innerHTML = data.svg;
+          setTikzStatus('Rendered via server');
+        } else if (data.png_base64) {
+          tikzPreview.innerHTML = `<img src="data:image/png;base64,${data.png_base64}" style="max-width:100%">`;
+          setTikzStatus('Rendered via server (PNG)');
+        }
+      } else {
+        const err = await resp.text();
+        setTikzStatus(`Render error: ${err.substring(0, 100)}`);
+      }
+    } catch (e2) {
+      setTikzStatus('No renderer available. Install tikzjax or start the local server.');
+      tikzPreview.innerHTML = '<div class="placeholder">Could not render. Options:<br>1. Start local server: <code>python knit_server.py</code><br>2. Save the .tex file and compile with pdflatex</div>';
+    }
+  }
+});
+
+// Resize handle for preview pane
+{
+  const handle = document.getElementById('tikz-resize-handle');
+  let resizing = false, startY, startH;
+  handle.addEventListener('mousedown', e => {
+    resizing = true;
+    startY = e.clientY;
+    startH = tikzPreview.offsetHeight;
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!resizing) return;
+    const dy = e.clientY - startY;
+    tikzPreview.style.height = Math.max(50, startH - dy) + 'px';
+  });
+  document.addEventListener('mouseup', () => { resizing = false; });
+}
+
+// ============================================================
+// INIT
+// ============================================================
+
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// Center the view
+viewX = canvas.width / devicePixelRatio / 2;
+viewY = canvas.height / devicePixelRatio / 2;
+render();
+
+</script>
+</body>
+</html>
