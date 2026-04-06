@@ -1,0 +1,316 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+
+\setlength{\parskip}{0.6em}
+\setlength{\parindent}{0pt}
+
+\newtheorem{definition}{Definition}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{claim}{Claim}
+\newtheorem{remark}{Remark}
+
+\newcommand{\YCP}{\mathrm{YCP}}
+\newcommand{\Front}{\mathcal{F}}
+\newcommand{\Arcs}{\mathcal{A}}
+\newcommand{\Cross}{\mathcal{C}}
+\newcommand{\rows}{\mathrm{rows}}
+\newcommand{\cols}{\mathrm{cols}}
+\newcommand{\detK}{\mathrm{det}}
+
+\title{Stitch-Local Crossing Semantics and an Algebraic Pipeline for Finite Knitted Closures}
+\author{}
+\date{April 6, 2026}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\section*{Purpose}
+This note turns the current memo into a mathematical work plan. The main goal is to define a stitch-local representation that is strong enough to support:
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.25em]
+    \item a constructive proof that a finished finite knitted object closes to a single component,
+    \item an algorithm that extracts a knot diagram from the stitch program, and
+    \item a local update rule for a computable invariant, preferably via Fox colorings or Alexander-type matrices.
+\end{enumerate}
+
+The key conclusion is that the most efficient proof route is:
+\[
+\text{stitch program} \to \text{yarn graph with boundary data} \to \text{yarn crossing presentation} \to \text{reduced coloring/Alexander matrix}.
+\]
+Among the invariant options, the coloring-matrix/Alexander route is the one that naturally supports local row and column operations. Jones polynomials can still be computed after diagram extraction, but they are not the right primary proof engine for a stitch-by-stitch update theorem.
+
+\section*{1. What Must Be Proved}
+There are really two different theorems.
+
+\textbf{Theorem family A: single closed component.}  
+This is the statement that after the final pass through the last bind-off loop and the identification with the cast-on end, the construction yields exactly one closed curve. This should be proved from the combinatorics of the yarn path, not from a determinant.
+
+\textbf{Theorem family B: knot invariant extraction.}  
+Once the closed curve is represented as a knot diagram, one can compute a determinant, Fox coloring matrix, Alexander polynomial, or Jones polynomial. These certify nontriviality or identify knot type, but they do not by themselves replace the single-component proof.
+
+\begin{remark}
+The determinant is excellent for proving that the closure is \emph{nontrivial}, or for distinguishing examples. It is not, by itself, the right certificate that the finished object is a knot rather than a multi-component link.
+\end{remark}
+
+\section*{2. Recommended Representation}
+
+\subsection*{2.1 Three levels}
+The existing project already has the first two layers.
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item \textbf{Stitch graph.} One vertex per stitch event, ordered left-to-right within rows and vertically by dependence.
+    \item \textbf{Yarn graph.} A directed multigraph recording the path of the working yarn through these stitch events, with explicit ``up'' and ``down'' edges.
+    \item \textbf{Yarn crossing presentation (\(\YCP\)).} A combinatorial knot-diagram object that records arcs, crossings, and boundary endpoints.
+\end{enumerate}
+
+The new work belongs almost entirely in level 3, but level 3 should be derived from level 2 by a local rule at each stitch.
+
+\subsection*{2.2 The yarn crossing presentation}
+\begin{definition}[Yarn crossing presentation]
+A yarn crossing presentation is a tuple
+\[
+\YCP=(\Arcs,\Cross,\Front,\prec,\partial_{\mathrm{in}},\partial_{\mathrm{out}})
+\]
+where:
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item \(\Arcs\) is the set of oriented arc segments between crossings,
+    \item \(\Cross\) is the set of crossings,
+    \item each crossing \(c\in\Cross\) has an ordered triple
+    \[
+    c=(o(c);u_1(c),u_2(c),\varepsilon(c)),
+    \]
+    where \(o(c)\) is the over-arc, \(u_1(c),u_2(c)\) are the under-arcs, and \(\varepsilon(c)\in\{+1,-1\}\) is the crossing sign,
+    \item \(\Front\subseteq \Arcs\) is the ordered frontier of arcs still exposed to future knitting operations,
+    \item \(\prec\) is the left-to-right order on the current frontier,
+    \item \(\partial_{\mathrm{in}},\partial_{\mathrm{out}}\) are the initial cast-on and active working-yarn boundary endpoints.
+\end{enumerate}
+\end{definition}
+
+The frontier \(\Front\) is the crucial object. It is what allows a stitch to be added locally. Each new stitch consumes a constant number of frontier arcs and produces a constant number of new frontier arcs.
+
+\subsection*{2.3 Why the yarn graph is not quite enough}
+The yarn graph captures adjacency of yarn segments around stitch events, but it does not by itself specify which local strand is over and which is under. Therefore, for each stitch vertex \(v\), one must add a \emph{local crossing signature}
+\[
+S(v) = (\text{interface arcs}, \text{internal arcs}, \text{crossings}, \text{frontier update}).
+\]
+This signature is the missing data needed to derive a knot diagram.
+
+\section*{3. Local Stitch Signatures}
+
+\subsection*{3.1 General form}
+For each stitch type \(\sigma\), define a constant-size gadget \(G_\sigma\) with:
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item consumed interface arcs \(I^-_\sigma\),
+    \item produced interface arcs \(I^+_\sigma\),
+    \item internal arcs \(J_\sigma\),
+    \item local crossings \(C_\sigma\),
+    \item a gluing rule identifying \(I^-_\sigma\) with specific entries of the current frontier \(\Front\),
+    \item an ordered replacement rule that inserts \(I^+_\sigma\) back into the frontier.
+\end{enumerate}
+
+This lets every stitch act as a rewrite step
+\[
+(\YCP_t,\Front_t)\xrightarrow{\sigma_t}(\YCP_{t+1},\Front_{t+1}).
+\]
+
+\subsection*{3.2 Baseline stitch classes}
+The exact signs depend on the orientation convention in the final diagrams. The table below therefore records the \emph{combinatorial} update type first and treats signs as a convention choice.
+
+\begin{center}
+\begin{tabular}{>{\raggedright\arraybackslash}p{1.8in} >{\raggedright\arraybackslash}p{1.2in} >{\raggedright\arraybackslash}p{1.2in} >{\raggedright\arraybackslash}p{2.7in}}
+\toprule
+Stitch type & Consumes & Produces & Local crossing data \\
+\midrule
+First cast-on & \(0\) frontier loops & \(1\) live loop, plus initial tail/work strand boundary data & In the simplest untwisted model, no intrinsic crossing; initializes \(\partial_{\mathrm{in}}\) and \(\Front\). \\
+Generic cast-on & \(0\) live loops & \(1\) new live loop & Usually no intrinsic crossing in the abstract model; appends one new frontier arc and one horizontal yarn adjacency. \\
+Wrap-turn & \(1\) current live loop & \(1\) wrapped live loop & Adds one wrap arc around the held loop; one local signed crossing is the natural minimal model. \\
+Knit & \(1\) old loop & \(1\) new loop & One local crossing between the working strand and the consumed loop; sign convention opposite to purl. \\
+Purl & \(1\) old loop & \(1\) new loop & Same incidence pattern as knit, but opposite crossing sign. \\
+Bind-off & \(1\) old loop, plus interaction with previous bind-off loop & usually \(1\) continuing terminal loop until the last step & Contains the knit-like crossing plus the pass-through that links successive bind-off loops; this is the first place where frontier size can decrease. \\
+Final bind-off pull-through & final live loop & \(0\) live loops & Closes the yarn path by identifying the working end with the remaining terminal loop; if embedded in a boundary collar, it can be chosen crossing-free. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{remark}
+For the first paper, it is completely reasonable to adopt a \emph{minimal crossing semantics}: cast-on is crossing-free, knit and purl contribute one signed crossing each, wrap-turn contributes one signed crossing, ordinary bind-off contributes a bounded constant number of crossings, and the final pull-through is crossing-free in a collar neighborhood. This gives a clean theorem surface.
+\end{remark}
+
+\subsection*{3.3 The ``one missing arc'' principle}
+Your current observation can be formalized as follows.
+
+\begin{claim}
+For a generic one-loop stitch, the yarn graph already determines all but one arc in the corresponding local knot-diagram gadget. The remaining arc can be canonically assigned to the stitch vertex itself.
+\end{claim}
+
+This is important because it means the crossing presentation need not duplicate the entire yarn graph. Instead, for each stitch vertex \(v\), store:
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item the incident yarn-graph edges that already specify inherited arcs,
+    \item one distinguished residual arc \(\rho(v)\),
+    \item the local crossing list in terms of those inherited arcs and \(\rho(v)\).
+\end{enumerate}
+
+That gives a compact representation:
+\[
+v \mapsto \bigl(\rho(v), C(v), \text{frontier action of }v\bigr).
+\]
+This is probably the most efficient bridge between the yarn graph and the crossing presentation.
+
+\section*{4. Algebraic Extraction by Fox Colorings}
+
+\subsection*{4.1 Global matrix}
+Given a completed knot diagram with arc set \(\Arcs=\{a_1,\dots,a_m\}\) and crossings \(\Cross=\{c_1,\dots,c_r\}\), define the integer coloring matrix \(M\in\mathbb{Z}^{r\times m}\) by one row per crossing:
+\[
+2x_{o(c)} - x_{u_1(c)} - x_{u_2(c)} = 0.
+\]
+Equivalently, the row for crossing \(c\) has:
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item \(2\) in the column of the over-arc,
+    \item \(-1\) in the columns of the two under-arcs,
+    \item \(0\) elsewhere.
+\end{enumerate}
+
+For a knot diagram, deleting one row and one column yields a reduced coloring matrix \(M^{\mathrm{red}}\), and
+\[
+\detK(K)=\left|\det(M^{\mathrm{red}})\right|.
+\]
+
+\subsection*{4.2 Why this is the right primary invariant engine}
+This representation is local in exactly the right way:
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item every new crossing contributes one sparse row,
+    \item every newly created arc contributes one column,
+    \item every identification of arcs is a column merge or column elimination,
+    \item every stitch therefore induces only constant-size matrix surgery.
+\end{enumerate}
+
+That is the algebraic counterpart of stitch locality.
+
+\subsection*{4.3 Frontier matrix update}
+Instead of rebuilding the full matrix after every stitch, keep a \emph{frontier-reduced matrix} \(R_t\) whose columns correspond only to current frontier arcs plus a bounded set of recently introduced internal arcs not yet eliminated.
+
+Suppose stitch \(\sigma\) adds a local block
+\[
+B_\sigma=
+\begin{bmatrix}
+B_{\mathrm{ff}} & B_{\mathrm{fi}} \\
+B_{\mathrm{if}} & B_{\mathrm{ii}}
+\end{bmatrix},
+\]
+where the \(f\)-columns correspond to frontier arcs and the \(i\)-columns correspond to internal arcs introduced by the local gadget. After gluing consumed frontier arcs to the appropriate columns of \(R_t\), eliminate the internal columns by Gaussian elimination or Schur complement. The updated state is:
+\[
+R_{t+1} = \operatorname{Reduce}\!\bigl(R_t \oplus B_\sigma\bigr).
+\]
+
+In words, each stitch contributes a constant-size block and then a constant-size elimination. This is the cleanest formal version of ``the stitch induces row operations on a coloring matrix.''
+
+\begin{remark}
+To prove correctness, you do \emph{not} need to claim that a stitch acts by only one elementary row operation. In general it will be a bounded sequence of row operations, column insertions, column identifications, and elimination of local internal variables.
+\end{remark}
+
+\subsection*{4.4 Better formal statement}
+The theorem to aim for is:
+
+\begin{theorem}[Local algebraic update theorem]
+Let \(\Sigma\) be a finite library of stitch primitives, each equipped with a crossing signature \(G_\sigma\). Then there exists a finite set of matrix update templates \(\{U_\sigma : \sigma\in\Sigma\}\) such that for every valid stitch program \(P=\sigma_1\cdots\sigma_N\), the reduced coloring matrix of the final closure can be obtained by iteratively applying the updates \(U_{\sigma_t}\) to the frontier-reduced matrix state.
+\end{theorem}
+
+This is the exact row-operation style theorem that appears to fit the project best.
+
+\section*{5. Alexander and Jones Options}
+
+\subsection*{5.1 Alexander route}
+The Alexander matrix is also local enough to work stitch-by-stitch. One can derive it from the same crossing presentation by writing Wirtinger generators for arcs and Fox derivatives for crossings, then evaluating in the abelianization. This is more algebraically involved than the coloring matrix, but it is still linear and local.
+
+\textbf{Recommendation:} prove the local update theorem first for the coloring matrix, then package the Alexander matrix as a stronger extension using the same crossing presentation.
+
+\subsection*{5.2 Jones route}
+The Jones polynomial is less attractive as the primary proof tool because a skein relation branches recursively. It is excellent as a post-processing invariant once the final diagram is known, but it is not naturally described by bounded local matrix updates at each stitch.
+
+\textbf{Recommendation:} do not build the main theorem around Jones updates. Use Jones only after the crossing presentation is complete, or for small examples.
+
+\section*{6. Proof Strategy Split Into Two Pipelines}
+
+\subsection*{6.1 Pipeline A: prove the result is a knot}
+This should be proved from the yarn graph and frontier semantics.
+
+\begin{definition}[Single-strand state]
+A knitting state is single-strand if the yarn graph contains exactly one path component with two boundary endpoints: the cast-on end and the active working end.
+\end{definition}
+
+\begin{lemma}[Local preservation of single-strandness]
+Each stitch in the permitted library transforms a single-strand state into a single-strand state.
+\end{lemma}
+
+\begin{theorem}[Closure theorem]
+If a stitch program begins in the first cast-on state, each stitch preserves single-strandness, and the final finishing move identifies the active working end with the cast-on end through the terminal loop, then the resulting finished object is one closed component.
+\end{theorem}
+
+This theorem proves ``it is a knot'' in the topological sense of a single closed curve.
+
+\subsection*{6.2 Pipeline B: prove or compute nontriviality}
+Once closure is established, use the crossing presentation to compute an invariant:
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item determinant via reduced coloring matrix,
+    \item Alexander polynomial via Fox derivatives,
+    \item Jones polynomial as optional post-processing.
+\end{enumerate}
+
+This theorem should look like:
+
+\begin{theorem}[Invariant extraction theorem]
+For every valid closed stitch program in the primitive library, the corresponding crossing presentation can be transformed in polynomial time into a reduced coloring matrix and hence into \(\detK(K)\). The same crossing presentation also determines a Wirtinger presentation and an Alexander matrix.
+\end{theorem}
+
+\section*{7. Concrete Stitch-by-Stitch Data To Record}
+For each primitive \(\sigma\), I recommend that the formal library include the following exact fields:
+
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item \textbf{Consumption data:} how many frontier loops/arcs are consumed.
+    \item \textbf{Production data:} how many new frontier loops/arcs are created.
+    \item \textbf{Residual arc map:} the distinguished local arc \(\rho(v)\) not already encoded by yarn-graph edges.
+    \item \textbf{Crossing list:} ordered tuples \((o;u_1,u_2,\varepsilon)\).
+    \item \textbf{Frontier replacement rule:} where the new frontier arcs sit in left-to-right order.
+    \item \textbf{Boundary effect:} whether the stitch changes the cast-on or working-end status.
+    \item \textbf{Matrix template:} the sparse local block \(B_\sigma\) added to the coloring system.
+\end{enumerate}
+
+This is the exact amount of information needed for a compositional theorem and for implementation.
+
+\section*{8. Immediate Mathematical Tasks}
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.25em]
+    \item Fix one orientation convention for the diagram plane and assign signs for knit and purl crossings.
+    \item Draw the minimal local knot-diagram gadget for:
+    first cast-on, generic cast-on, wrap-turn, knit, purl, bind-off, and final bind-off pull-through.
+    \item For each gadget, enumerate interface arcs, internal arcs, and crossings.
+    \item Define the frontier update rule for each gadget.
+    \item Write the corresponding local coloring block \(B_\sigma\) for each gadget.
+    \item Prove local preservation of single-strandness for each primitive.
+    \item Prove that composing gadgets yields the same closed diagram as following the yarn graph.
+    \item Only after the coloring theorem is finished, extend to an Alexander matrix statement.
+\end{enumerate}
+
+\section*{9. Best Next Theorem Statements}
+If the goal is an efficient paper and implementation path, the best theorem sequence is:
+
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.25em]
+    \item \textbf{Representation theorem.} Every valid stitch program induces a unique yarn crossing presentation by local gadget gluing.
+    \item \textbf{Single-component theorem.} The closure of every valid finished program is one closed component.
+    \item \textbf{Local coloring update theorem.} Each stitch acts by a bounded update on the frontier-reduced coloring matrix.
+    \item \textbf{Determinant theorem.} The determinant of the finished closure is computable in polynomial time from those local updates.
+    \item \textbf{Extension theorem.} The same presentation yields an Alexander matrix; Jones is computable afterward from the completed diagram.
+\end{enumerate}
+
+\section*{Bottom Line}
+The right abstraction is not ``just the yarn graph'' and not ``just a crossing list.'' It is a stitch-local crossing semantics layered on top of the yarn graph, with one residual arc and a constant-size crossing gadget per stitch. The best proof engine is then a frontier-reduced Fox coloring matrix updated by constant-size block operations at each stitch. That gives a realistic path to a compositional theorem, an implementation, and a determinant computation.
+
+\end{document}
