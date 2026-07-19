@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WoolyGraphs — Spiral Hat Viewer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font: 13px/1.45 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: #14161a; color: #d7dae0;
+  }
+  #canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #panel {
+    position: absolute; top: 12px; left: 12px; width: 240px;
+    background: rgba(24, 27, 33, 0.92); border: 1px solid #2c313a;
+    border-radius: 10px; padding: 12px 14px; backdrop-filter: blur(6px);
+  }
+  #panel h1 { font-size: 14px; margin-bottom: 2px; color: #fff; }
+  #panel .sub { color: #8b93a1; margin-bottom: 10px; }
+  #stats { margin-bottom: 10px; }
+  #stats div { display: flex; justify-content: space-between; }
+  #stats span:last-child { color: #fff; font-variant-numeric: tabular-nums; }
+  label.toggle { display: flex; gap: 7px; align-items: center; padding: 2px 0; cursor: pointer; }
+  #roundbox { margin-top: 10px; border-top: 1px solid #2c313a; padding-top: 8px; }
+  #roundbox input[type=range] { width: 100%; }
+  #optbox { margin-top: 10px; border-top: 1px solid #2c313a; padding-top: 10px; }
+  #optbox button {
+    font: inherit; color: #fff; background: #2f76c4; border: 0;
+    border-radius: 6px; padding: 5px 12px; margin-right: 6px; cursor: pointer;
+  }
+  #optbox button:disabled { opacity: 0.5; cursor: default; }
+  #optbox #b_reset, #optbox #b_stop { background: #3a4150; }
+  #optstat { margin-top: 7px; color: #8b93a1; min-height: 1.2em; }
+  .pgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 8px; margin-bottom: 9px; }
+  .pgrid label { color: #8b93a1; display: flex; flex-direction: column; gap: 2px; }
+  .pgrid input {
+    font: inherit; color: #fff; background: #14161a; border: 1px solid #2c313a;
+    border-radius: 5px; padding: 3px 6px; width: 100%; min-width: 0;
+  }
+  #roundlabel { display: flex; justify-content: space-between; color: #8b93a1; }
+  #roundlabel span:last-child { color: #fff; font-variant-numeric: tabular-nums; }
+  .swatches { display: flex; gap: 10px; margin: 8px 0 10px; }
+  .swatches div { display: flex; gap: 5px; align-items: center; color: #8b93a1; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  #err { position: absolute; inset: 0; display: none; place-items: center; color: #ff8a80; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="panel">
+  <h1 id="name">loading…</h1>
+  <div class="sub" id="sub"></div>
+  <div class="swatches">
+    <div><span class="dot" style="background:#e9e5da"></span>white</div>
+    <div><span class="dot" style="background:#2f76c4"></span>blue</div>
+    <div><span class="dot" style="background:#ff5c49"></span>k2tog</div>
+    <div><span class="dot" style="background:#ffd23f"></span>cast-on</div>
+  </div>
+  <div id="stats"></div>
+  <label class="toggle"><input type="checkbox" id="t_yarn" checked> yarn spiral</label>
+  <label class="toggle"><input type="checkbox" id="t_cols" checked> column edges</label>
+  <label class="toggle"><input type="checkbox" id="t_dec" checked> highlight shaping</label>
+  <div id="roundbox">
+    <div id="roundlabel"><span>knit through round</span><span id="roundval"></span></div>
+    <input type="range" id="round" min="1" value="1" step="1">
+  </div>
+  <div id="optbox">
+    <div class="pgrid">
+      <label>iterations <input id="p_iters" value="1000"></label>
+      <label>update every <input id="p_every" value="500"></label>
+      <label>learn rate <input id="p_lr" value="0.001"></label>
+      <label>&lambda; gauge <input id="p_wg" value="1.0"></label>
+      <label>&lambda; inflate <input id="p_wi" value="0.02"></label>
+      <label>&lambda; smooth <input id="p_ws" value="0.1"></label>
+    </div>
+    <button id="b_opt">Optimize</button>
+    <button id="b_stop" disabled>Stop</button>
+    <button id="b_reset">Reset</button>
+    <div id="optstat"></div>
+  </div>
+  <div class="sub" style="margin-top:8px">
+    drag orbit &middot; right/shift-drag pan &middot; scroll zoom
+  </div>
+</div>
+<div id="err"></div>
+<script type="importmap">
+  { "imports": { "three": "./lib/three.module.js" } }
+</script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
