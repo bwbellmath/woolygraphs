@@ -1,9 +1,9 @@
 import * as THREE from "three";
 import { ChartGrid, parseCell, COLORS, DECREASE_OPS, INCREASE_OPS } from "./chart.js";
 import { defaultParams, guideCells, idealWidths } from "./shaping.js";
-import { buildEdges, edgeLengths, relativeError, histogram,
-         STRAIN_ZERO, STRAIN_LONG, STRAIN_SHORT } from "./metrics.js";
-import { renderHistogram, renderStats } from "./histogram.js";
+import { buildEdges, edgeLengths, relativeError, histogram, binValues,
+         strainColor, quantile } from "./metrics.js";
+import { renderHistogram, renderStats, renderDeviation } from "./histogram.js";
 
 const $ = (id) => document.getElementById(id);
 const PARAMS = new URLSearchParams(location.search);
@@ -72,9 +72,6 @@ const edgeMat = new THREE.MeshBasicMaterial({
 // cylinder per measured edge, coloured by how far it is off gauge.
 const strainMat = new THREE.MeshBasicMaterial();
 const STRAIN_RADIUS = 0.022;
-const cZero = new THREE.Color(STRAIN_ZERO);
-const cLong = new THREE.Color(STRAIN_LONG);
-const cShort = new THREE.Color(STRAIN_SHORT);
 
 const m = new THREE.Matrix4();
 const _a = new THREE.Vector3(), _b = new THREE.Vector3();
@@ -217,9 +214,10 @@ function paintStrain() {
   const err = relativeError(hat.edges, lengths);
   const scale = strainScale();
   const c = new THREE.Color();
+  const rgb = [0, 0, 0];
   for (let i = 0; i < err.length; i++) {
-    const t = Math.max(-1, Math.min(1, err[i] / scale));
-    c.copy(cZero).lerp(t >= 0 ? cLong : cShort, Math.abs(t));
+    strainColor(err[i], scale, rgb);   // shared with the deviation plot
+    c.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace);
     hat.strain.setColorAt(i, c);
   }
   hat.strain.instanceColor.needsUpdate = true;
@@ -230,7 +228,10 @@ function strainMode() { return $("t_strain").checked; }
 function applyStrainMode() {
   const on = strainMode();
   $("strainbox").hidden = !on;
-  $("strainval").textContent = `±${(strainScale() * 100).toFixed(0)}%`;
+  const pct = (strainScale() * 100).toFixed(0);
+  $("strainval").textContent = `±${pct}%`;
+  $("rampmin").textContent = `−${pct}% shorter`;
+  $("rampmax").textContent = `+${pct}% longer`;
   if (!hat) return;
   hat.strain.visible = on;
   hat.mesh.visible = !on;
@@ -268,7 +269,7 @@ $("t_yarn").onchange = (e) => (hat.yarnLine.visible = e.target.checked && !strai
 $("t_cols").onchange = (e) => (hat.colLines.visible = e.target.checked && !strainMode());
 $("t_dec").onchange = paint;
 $("t_strain").onchange = applyStrainMode;
-$("strainscale").oninput = () => { paintStrain(); applyStrainMode(); };
+$("strainscale").oninput = () => { paintStrain(); applyStrainMode(); refreshEdges(); };
 
 // ---------- chart pane ----------
 let serverOnline = false;
@@ -544,6 +545,16 @@ function refreshEdges() {
     : byLength;
   renderHistogram($("edgesvg"), plotted, { logY: $("e_log").checked });
   renderStats($("edgestats"), byLength);
+
+  // Every edge on one axis, painted with the 3D heatmap's own ramp, so the
+  // colour scale is stated in numbers next to the data it describes.
+  const err = relativeError(hat.edges, lengths);
+  const scale = strainScale();
+  const sorted = Float64Array.from(err).sort();
+  const lo = Math.min(quantile(sorted, 0.002), -scale * 1.15);
+  const hi = Math.max(quantile(sorted, 0.998), scale * 1.15);
+  renderDeviation($("devsvg"), binValues(err, bins, lo, hi),
+                  { scale, logY: $("e_log").checked });
 }
 $("e_bins").oninput = refreshEdges;
 $("e_mode").onchange = refreshEdges;

@@ -14,11 +14,48 @@ export const CLASSES = [
   { key: "s", name: "shaping", short: "inc/dec", color: "#199e70" },
 ];
 
-// Diverging poles for the strain heatmap: neutral black at gauge, warm
-// where an edge is stretched, cool where it is compressed.
+// Diverging poles for the strain heatmap: neutral near-black at gauge, warm
+// where an edge is stretched, cool where it is compressed. The 3D view and
+// the deviation histogram share this ramp so they cannot disagree.
 export const STRAIN_ZERO = "#0a0c10";
 export const STRAIN_LONG = "#ff8a3d";   // positive: longer than gauge
 export const STRAIN_SHORT = "#2fd6ab";  // negative: shorter than gauge
+
+const hex2rgb = (h) => [
+  parseInt(h.slice(1, 3), 16) / 255,
+  parseInt(h.slice(3, 5), 16) / 255,
+  parseInt(h.slice(5, 7), 16) / 255,
+];
+const RGB_ZERO = hex2rgb(STRAIN_ZERO);
+const RGB_LONG = hex2rgb(STRAIN_LONG);
+const RGB_SHORT = hex2rgb(STRAIN_SHORT);
+
+/** sRGB colour for a signed relative error, saturating at +-scale.
+ *  err = length/gauge - 1, so 0 is exactly on gauge. */
+export function strainColor(err, scale, out = [0, 0, 0]) {
+  const t = Math.max(-1, Math.min(1, (scale > 0 ? err / scale : 0)));
+  const pole = t >= 0 ? RGB_LONG : RGB_SHORT;
+  const k = Math.abs(t);
+  for (let i = 0; i < 3; i++) out[i] = RGB_ZERO[i] + (pole[i] - RGB_ZERO[i]) * k;
+  return out;
+}
+
+export const strainCss = (err, scale) =>
+  "rgb(" + strainColor(err, scale).map((v) => Math.round(v * 255)).join(",") + ")";
+
+/** Single-series binning of signed values over an explicit range. */
+export function binValues(values, bins, lo, hi) {
+  const width = (hi - lo) / bins;
+  const counts = new Int32Array(bins);
+  let clipped = 0;
+  for (const v of values) {
+    const k = Math.floor((v - lo) / width);
+    if (k < 0 || k >= bins) { clipped++; continue; }
+    counts[k]++;
+  }
+  return { lo, hi, width, bins, counts, clipped, n: values.length,
+           max: Math.max(1, ...counts) };
+}
 
 /** Edge list as flat arrays, ordered by the round the edge completes. */
 export function buildEdges(bundle) {

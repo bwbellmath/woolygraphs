@@ -12,6 +12,7 @@
 #                       from the workbook
 #   make layouts        write web/data/<name>_layout.json for every chart
 #   make test           run the unit tests
+#   make doc            build docs/hat_layout_findings.pdf
 #
 # The venv and vendored three.js are built on demand and cached.
 
@@ -28,7 +29,7 @@ CHART_REPEATS = $(or $(REPEATS_$(1)),$(REPEATS))
 HGAUGE  := 8
 VGAUGE  := 12
 
-.PHONY: small_cubes alt_cubes open serve layout layouts chart charts test clean
+.PHONY: small_cubes alt_cubes open serve layout layouts chart charts test doc clean
 
 SERVE = $(PY) tools/serve_viewer.py --port $(PORT) --chart "$(1)" \
 	    --repeats $(2) --horizontal-gauge $(HGAUGE) --vertical-gauge $(VGAUGE)
@@ -80,6 +81,14 @@ web/data/%_layout.json: patterns/%.csv tools/spiral_layout.py tools/chart.py | $
 $(THREE):
 	mkdir -p web/lib
 	curl -fsSL https://unpkg.com/three@0.160.0/build/three.module.js -o $@
+
+doc: docs/hat_layout_findings.pdf
+
+docs/%.pdf: docs/%.tex
+	cd docs && pdflatex -interaction=nonstopmode -halt-on-error $*.tex >/dev/null \
+	    && pdflatex -interaction=nonstopmode -halt-on-error $*.tex >/dev/null
+	@rm -f docs/$*.aux docs/$*.log docs/$*.out
+	@echo "built $@"
 
 test: | $(PY)
 	$(PY) -m pytest -q tests

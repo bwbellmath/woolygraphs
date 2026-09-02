@@ -154,6 +154,18 @@
     flex: 1; height: 7px; border-radius: 3px;
     background: linear-gradient(90deg, #2fd6ab, #0a0c10 50%, #ff8a3d);
   }
+  .rampticks {
+    display: flex; justify-content: space-between; color: #8b93a1;
+    font-size: 10px; font-variant-numeric: tabular-nums; margin-top: 2px;
+  }
+  .rampticks span:first-child { color: #2fd6ab; }
+  .rampticks span:last-child { color: #ff8a3d; }
+  #devplot { position: relative; padding: 2px 12px 0; }
+  #devplot svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .plothead {
+    color: #c3c2b7; font-size: 12px; padding: 14px 12px 0;
+    border-top: 1px solid #23272e; margin-top: 12px;
+  }
   #shapingform { padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; align-content: start; }
   #shapingform label { color: #8b93a1; display: flex; flex-direction: column; gap: 2px; }
   #shapingform input[type=number] { font: inherit; color: #fff; background: #14161a; border: 1px solid #2c313a; border-radius: 5px; padding: 3px 6px; }
@@ -187,7 +199,10 @@
       <div id="strainbox" hidden>
         <div id="strainlabel"><span>full scale</span><span id="strainval"></span></div>
         <input type="range" id="strainscale" min="2" max="50" step="1" value="25">
-        <div class="ramp"><span>shorter</span><i></i><span>longer</span></div>
+        <div class="ramp"><i></i></div>
+        <div class="rampticks">
+          <span id="rampmin"></span><span>0 · on gauge</span><span id="rampmax"></span>
+        </div>
       </div>
       <div id="roundbox">
         <div id="roundlabel"><span>knit through round</span><span id="roundval"></span></div>
@@ -257,6 +272,8 @@
       </div>
       <div id="edgeplot"><svg id="edgesvg"></svg></div>
       <div id="edgestats"></div>
+      <div class="plothead">Deviation from gauge, all edges &mdash; the heatmap scale</div>
+      <div id="devplot"><svg id="devsvg"></svg></div>
       <div class="note" style="padding:0 12px 18px">
         Measured on the same edges the optimizer works on: each stitch to its
         right-hand neighbour in the round, and each stitch to the one above it

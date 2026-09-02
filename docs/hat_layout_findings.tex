@@ -204,8 +204,9 @@ not a threshold count, which can move the wrong way while the layout improves.
 
 \paragraph{There is a systematic stretch.}
 Every class ends up long: $+2.3\%$ on rings, $+8.5\%$ on columns, $+19.9\%$ on
-shaping edges. The signs agree across classes and the effect survives further
-iterations, so this is the inflate term pulling against the gauge term at
+shaping edges. The signs agree across classes and the effect persists under
+further iteration (at 1200 iterations the three are still $+2.1\%$, $+7.9\%$
+and $+18.8\%$), so this is the inflate term pulling against the gauge term at
 equilibrium rather than incomplete convergence. Lowering
 $\lambda_{\text{inflate}}$ should move all three distributions back onto their
 targets, and how far it can be lowered before the surface collapses is the
@@ -221,10 +222,15 @@ the question is about. The x axis can switch from inches to error relative to
 gauge, which places all three classes on a single reference line at zero.
 
 The strain heatmap in the main view replaces the stitches with their edges,
-coloured by signed error against gauge: black on gauge, orange too long, teal
-too short. On-gauge edges recede into the background, so what remains visible
-is exactly the problem regions. Both views read the same edge set as the
-optimizer, so they cannot disagree with it.
+coloured by signed relative error against gauge: near-black on gauge, orange
+too long, teal too short, saturating at an adjustable full scale. On-gauge
+edges recede into the background, so what remains visible is exactly the
+problem regions. Beneath the length distributions sits a second plot binning
+every edge by that same signed error, with each bar painted in the colour the
+heatmap gives that deviation and the full-scale points marked. It doubles as
+the heatmap's legend, stating the ramp in numbers beside the distribution it
+describes. All three views read the same edge set as the optimizer and share
+one colour-ramp function, so they cannot disagree with each other.
 
 \section{Caveats and next steps}
 

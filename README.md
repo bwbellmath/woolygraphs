@@ -49,6 +49,10 @@ Variables can be overridden on the command line, e.g.
 make serve CHART=patterns/my_hat.csv REPEATS=6 HGAUGE=7.5 VGAUGE=12.5 PORT=9000
 ```
 
+Findings so far -- the sphere law, how the charts measure against it, and an
+edge-length baseline for the optimizer -- are written up in
+`docs/hat_layout_findings.tex` (build with `make doc`).
+
 ### Measuring edge lengths
 
 The **Edges** tab plots three overlaid distributions on shared bins, with a
@@ -67,8 +71,16 @@ can switch from inches to error relative to gauge, which puts all three series
 on one reference line. `?tab=edges`, `?x=error` and `?strain=1` are linkable.
 
 Ticking **edge strain heatmap** in the left panel replaces the stitches with
-their edges, coloured by signed error against gauge: black on gauge, orange
-too long, teal too short, with a slider for the full-scale value.
+their edges, coloured by signed error relative to gauge: near-black on gauge,
+orange too long, teal too short, saturating at the full scale set by the
+slider, whose end points are labelled with their percentages.
+
+Below the length distributions, a second plot bins every edge by that same
+signed error and paints each bar in the colour the heatmap gives that
+deviation, marking zero and both full-scale points. It is the heatmap's
+legend: it states the ramp in numbers next to the distribution it describes.
+The 3D view and that plot call one shared ramp function, so they cannot drift
+apart.
 
 Both views read the same edge set the optimizer works on, so they measure the
 layout rather than a separate approximation of it. As a baseline, 1000 Adam
