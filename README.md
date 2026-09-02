@@ -49,6 +49,26 @@ Variables can be overridden on the command line, e.g.
 make serve CHART=patterns/my_hat.csv REPEATS=6 HGAUGE=7.5 VGAUGE=12.5 PORT=9000
 ```
 
+### Crown shaping
+
+A hat closes correctly when each round's live stitch count follows the
+sphere it is wrapping: with `R = N0 / (2*pi*hg)` the count at `r` rounds
+above the equator is `N0 * cos(r / (vg*R))`, so the crown takes
+`(pi/2)*vg*R` rounds. `tools/reshape_crown.py` re-times an existing
+chart's decreases onto that curve, keeping its colours and its gore
+geometry (dead slots growing outward from a centre column until one
+spine column survives):
+
+```
+.venv/bin/python tools/reshape_crown.py patterns/alt_cubes.csv \
+    --repeats 6 --centre 10 --spine 20 --dry-run
+```
+
+The shaping in a CSV is drawn for one repeat count, so the Makefile
+carries a per-chart default (`REPEATS_alt_cubes := 6`). The **Shaping**
+tab shows the same curve as a yellow overlay and an ideal-versus-chart
+table.
+
 ### Chart format
 
 One CSV per pattern, one line per round in knit order (cast-on first),

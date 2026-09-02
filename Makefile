@@ -22,18 +22,21 @@ LAYOUT  := web/data/small_cubes_layout.json
 THREE   := web/lib/three.module.js
 PORT    := 8765
 REPEATS := 4
+# Per-chart repeat count (the shaping in each CSV is drawn for one value).
+REPEATS_alt_cubes := 6
+CHART_REPEATS = $(or $(REPEATS_$(1)),$(REPEATS))
 HGAUGE  := 8
 VGAUGE  := 12
 
 .PHONY: small_cubes alt_cubes open serve layout layouts chart charts test clean
 
 SERVE = $(PY) tools/serve_viewer.py --port $(PORT) --chart "$(1)" \
-	    --repeats $(REPEATS) --horizontal-gauge $(HGAUGE) --vertical-gauge $(VGAUGE)
+	    --repeats $(2) --horizontal-gauge $(HGAUGE) --vertical-gauge $(VGAUGE)
 BROWSE = ( sleep 1 && open "http://localhost:$(PORT)/" ) &
 
 small_cubes: $(THREE) | $(PY)
 	@$(BROWSE)
-	@$(call SERVE,$(CHART))
+	@$(call SERVE,$(CHART),$(call CHART_REPEATS,small_cubes))
 
 alt_cubes: edit-alt_cubes
 
@@ -41,16 +44,16 @@ alt_cubes: edit-alt_cubes
 edit-%: $(THREE) | $(PY)
 	@f=patterns/$*.csv; [ -f "$$f" ] || f=patterns/$*.json; \
 	  [ -f "$$f" ] || { echo "no patterns/$*.csv or .json"; exit 1; }; \
-	  $(BROWSE) $(call SERVE,$$f)
+	  $(BROWSE) $(call SERVE,$$f,$(call CHART_REPEATS,$*))
 
 # make open FILE=web/data/small_cubes_layout.json
 open: $(THREE) | $(PY)
 	@[ -n "$(FILE)" ] || { echo "usage: make open FILE=path/to/chart.csv|layout.json"; exit 1; }
 	@$(BROWSE)
-	@$(call SERVE,$(FILE))
+	@$(call SERVE,$(FILE),$(REPEATS))
 
 serve: $(THREE) | $(PY)
-	@$(call SERVE,$(CHART))
+	@$(call SERVE,$(CHART),$(call CHART_REPEATS,small_cubes))
 
 $(PY):
 	python3.12 -m venv .venv
@@ -71,7 +74,7 @@ layout: $(LAYOUT)
 layouts: $(patsubst patterns/%.csv,web/data/%_layout.json,$(wildcard patterns/*.csv))
 
 web/data/%_layout.json: patterns/%.csv tools/spiral_layout.py tools/chart.py | $(PY)
-	$(PY) tools/spiral_layout.py $< $@ --repeats $(REPEATS) \
+	$(PY) tools/spiral_layout.py $< $@ --repeats $(call CHART_REPEATS,$*) \
 	    --horizontal-gauge $(HGAUGE) --vertical-gauge $(VGAUGE)
 
 $(THREE):
