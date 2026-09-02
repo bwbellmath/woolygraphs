@@ -63,6 +63,12 @@ class HatOptimizer:
 
         # Vertices with a complete neighbor ring, for the smoothness term.
         self.full_ring = (nbr >= 0).all(dim=1)
+
+        # Anchored stitches never move (see module docstring).
+        anchor = bundle.get("anchor_flag") or [False] * nbr.shape[0]
+        self.anchor = torch.tensor(anchor, dtype=torch.bool, device=device)
+        self.pos.register_hook(
+            lambda g: g.masked_fill(self.anchor.unsqueeze(1), 0.0))
         self.history = []
         self._opt = torch.optim.Adam([self.pos], lr=lr)
 

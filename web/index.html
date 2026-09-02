@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>WoolyGraphs — Spiral Hat Viewer</title>
+<title>WoolyGraphs — Hat Editor</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   * { box-sizing: border-box; margin: 0; }
@@ -10,7 +10,11 @@
   body {
     font: 13px/1.45 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
     background: #14161a; color: #d7dae0;
+    --fg: #2f76c4; --bg: #e9e5da; --fg-text: #fff; --bg-text: #222;
+    --cw: 24px; --ch: 16px;
   }
+  #app { display: flex; height: 100%; }
+  #view { flex: 1 1 0; position: relative; min-width: 200px; }
   #canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   #panel {
     position: absolute; top: 12px; left: 12px; width: 240px;
@@ -26,65 +30,200 @@
   #roundbox { margin-top: 10px; border-top: 1px solid #2c313a; padding-top: 8px; }
   #roundbox input[type=range] { width: 100%; }
   #optbox { margin-top: 10px; border-top: 1px solid #2c313a; padding-top: 10px; }
-  #optbox button {
+  button {
     font: inherit; color: #fff; background: #2f76c4; border: 0;
-    border-radius: 6px; padding: 5px 12px; margin-right: 6px; cursor: pointer;
+    border-radius: 6px; padding: 5px 12px; cursor: pointer;
   }
-  #optbox button:disabled { opacity: 0.5; cursor: default; }
-  #optbox #b_reset, #optbox #b_stop { background: #3a4150; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.alt { background: #3a4150; }
+  #optbox button { margin-right: 6px; }
   #optstat { margin-top: 7px; color: #8b93a1; min-height: 1.2em; }
   .pgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 8px; margin-bottom: 9px; }
   .pgrid label { color: #8b93a1; display: flex; flex-direction: column; gap: 2px; }
-  .pgrid input {
+  .pgrid input, .tool input[type=number], .tool input[type=text] {
     font: inherit; color: #fff; background: #14161a; border: 1px solid #2c313a;
     border-radius: 5px; padding: 3px 6px; width: 100%; min-width: 0;
   }
   #roundlabel { display: flex; justify-content: space-between; color: #8b93a1; }
   #roundlabel span:last-child { color: #fff; font-variant-numeric: tabular-nums; }
-  .swatches { display: flex; gap: 10px; margin: 8px 0 10px; }
+  .swatches { display: flex; gap: 10px; margin: 8px 0 10px; flex-wrap: wrap; }
   .swatches div { display: flex; gap: 5px; align-items: center; color: #8b93a1; }
   .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
-  #err { position: absolute; inset: 0; display: none; place-items: center; color: #ff8a80; }
+  #err { position: absolute; inset: 0; display: none; place-items: center; color: #ff8a80; padding: 40px; text-align: center; }
+
+  /* ---- side pane ---- */
+  #splitter { width: 6px; cursor: col-resize; background: #1c1f25; border-left: 1px solid #2c313a; }
+  #splitter:hover { background: #2f76c4; }
+  #side {
+    width: 46%; min-width: 260px; max-width: 80%;
+    display: flex; flex-direction: column; background: #181b21;
+  }
+  #tabs { display: flex; border-bottom: 1px solid #2c313a; }
+  #tabs button {
+    background: none; border-radius: 0; color: #8b93a1; padding: 8px 14px;
+    border-bottom: 2px solid transparent;
+  }
+  #tabs button.on { color: #fff; border-bottom-color: #2f76c4; }
+  .tab { display: none; flex: 1; min-height: 0; flex-direction: column; }
+  .tab.on { display: flex; }
+  .tool {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    padding: 8px 10px; border-bottom: 1px solid #2c313a; color: #8b93a1;
+  }
+  .tool label { display: flex; gap: 5px; align-items: center; }
+  .tool input[type=number] { width: 58px; }
+  .tool select {
+    font: inherit; color: #fff; background: #14161a; border: 1px solid #2c313a;
+    border-radius: 5px; padding: 3px 6px; max-width: 220px;
+  }
+  #filebar button { padding: 4px 9px; }
+  .tool input[type=color] { width: 28px; height: 22px; padding: 0; border: 1px solid #2c313a; background: none; border-radius: 4px; }
+  .tool input[type=range] { width: 80px; }
+  #chartstat { padding: 4px 10px; color: #8b93a1; min-height: 1.4em; font-size: 12px; border-bottom: 1px solid #2c313a; }
+  #chartstat.bad { color: #ff8a80; }
+  #gridwrap { flex: 1; overflow: auto; outline: none; padding: 6px 10px 20px; }
+  #gridwrap:focus-within { box-shadow: inset 0 0 0 1px #2f76c4; }
+
+  /* ---- grid cells ---- */
+  .grid { display: grid; gap: 1px; font-size: 8px; line-height: 1; user-select: none; width: max-content; }
+  .grid .hd { color: #6f7785; font-size: 9px; display: grid; place-items: center; height: var(--ch); }
+  .grid .rh { color: #6f7785; font-size: 9px; display: grid; place-items: center end; padding-right: 4px; width: 32px; height: var(--ch); }
+  .grid .c {
+    position: relative; width: var(--cw); height: var(--ch);
+    background: #23272e; color: #8b93a1; overflow: hidden;
+    display: grid; place-items: center; cursor: cell; white-space: nowrap;
+  }
+  .grid .c.f { background: var(--fg); color: var(--fg-text); }
+  .grid .c.b { background: var(--bg); color: var(--bg-text); }
+  .grid .c.op { font-weight: 700; }
+  .grid .c.bad { outline: 2px solid #ff5c49; outline-offset: -2px; }
+  .grid .c.guide { outline: 2px solid #ffd23f; outline-offset: -2px; z-index: 1; }
+  .grid .c.sel { box-shadow: inset 0 0 0 100px rgba(47, 118, 196, 0.35); }
+  .grid .c.cur { outline: 2px solid #fff; outline-offset: -2px; z-index: 2; }
+  .grid .c.hl { outline: 2px solid #ff2fd0; outline-offset: -2px; z-index: 3; }
+  .grid .c input {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    font: 10px monospace; padding: 0 2px; border: 2px solid #fff; background: #fff; color: #000;
+  }
+  .grid .rh.eq { color: #ffd23f; }
+  .ctxmenu {
+    position: fixed; z-index: 50; min-width: 180px; padding: 4px;
+    background: #1e222a; border: 1px solid #3a4150; border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  .ctxmenu button {
+    display: block; width: 100%; text-align: left; background: none;
+    color: #d7dae0; padding: 5px 10px; border-radius: 5px;
+  }
+  .ctxmenu button:hover { background: #2f76c4; color: #fff; }
+  .ctxmenu .sep { height: 1px; background: #2c313a; margin: 4px 2px; }
+  #shapingform { padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; align-content: start; }
+  #shapingform label { color: #8b93a1; display: flex; flex-direction: column; gap: 2px; }
+  #shapingform input[type=number] { font: inherit; color: #fff; background: #14161a; border: 1px solid #2c313a; border-radius: 5px; padding: 3px 6px; }
+  #shapingform .full { grid-column: 1 / -1; }
+  #shapingtable { padding: 0 10px 20px; overflow: auto; flex: 1; color: #8b93a1; font-variant-numeric: tabular-nums; }
+  #shapingtable table { border-collapse: collapse; font-size: 12px; }
+  #shapingtable td, #shapingtable th { padding: 1px 8px; text-align: right; border-bottom: 1px solid #23272e; }
+  #shapingtable th { color: #6f7785; font-weight: 500; }
+  #shapingtable td.miss { color: #ff8a80; }
+  #shapingtable td.ok { color: #7bd88f; }
 </style>
 </head>
 <body>
-<canvas id="canvas"></canvas>
-<div id="panel">
-  <h1 id="name">loading…</h1>
-  <div class="sub" id="sub"></div>
-  <div class="swatches">
-    <div><span class="dot" style="background:#e9e5da"></span>white</div>
-    <div><span class="dot" style="background:#2f76c4"></span>blue</div>
-    <div><span class="dot" style="background:#ff5c49"></span>k2tog</div>
-    <div><span class="dot" style="background:#ffd23f"></span>cast-on</div>
-  </div>
-  <div id="stats"></div>
-  <label class="toggle"><input type="checkbox" id="t_yarn" checked> yarn spiral</label>
-  <label class="toggle"><input type="checkbox" id="t_cols" checked> column edges</label>
-  <label class="toggle"><input type="checkbox" id="t_dec" checked> highlight shaping</label>
-  <div id="roundbox">
-    <div id="roundlabel"><span>knit through round</span><span id="roundval"></span></div>
-    <input type="range" id="round" min="1" value="1" step="1">
-  </div>
-  <div id="optbox">
-    <div class="pgrid">
-      <label>iterations <input id="p_iters" value="1000"></label>
-      <label>update every <input id="p_every" value="500"></label>
-      <label>learn rate <input id="p_lr" value="0.001"></label>
-      <label>&lambda; gauge <input id="p_wg" value="1.0"></label>
-      <label>&lambda; inflate <input id="p_wi" value="0.02"></label>
-      <label>&lambda; smooth <input id="p_ws" value="0.1"></label>
+<div id="app">
+  <div id="view">
+    <canvas id="canvas"></canvas>
+    <div id="panel">
+      <h1 id="name">loading…</h1>
+      <div class="sub" id="sub"></div>
+      <div class="swatches">
+        <div><span class="dot" id="sw_bg"></span>background (b)</div>
+        <div><span class="dot" id="sw_fg"></span>foreground (f)</div>
+        <div><span class="dot" style="background:#ff5c49"></span>decrease</div>
+        <div><span class="dot" style="background:#ffd23f"></span>cast-on</div>
+      </div>
+      <div id="stats"></div>
+      <label class="toggle"><input type="checkbox" id="t_yarn" checked> yarn spiral</label>
+      <label class="toggle"><input type="checkbox" id="t_cols" checked> column edges</label>
+      <label class="toggle"><input type="checkbox" id="t_dec" checked> highlight shaping</label>
+      <div id="roundbox">
+        <div id="roundlabel"><span>knit through round</span><span id="roundval"></span></div>
+        <input type="range" id="round" min="1" value="1" step="1">
+      </div>
+      <div id="optbox">
+        <div class="pgrid">
+          <label>iterations <input id="p_iters" value="1000"></label>
+          <label>update every <input id="p_every" value="500"></label>
+          <label>learn rate <input id="p_lr" value="0.001"></label>
+          <label>&lambda; gauge <input id="p_wg" value="1.0"></label>
+          <label>&lambda; inflate <input id="p_wi" value="0.02"></label>
+          <label>&lambda; smooth <input id="p_ws" value="0.1"></label>
+        </div>
+        <button id="b_opt">Optimize</button>
+        <button id="b_stop" class="alt" disabled>Stop</button>
+        <button id="b_reset" class="alt">Reset</button>
+        <button id="b_savelayout" class="alt" style="margin-top:6px">Save layout</button>
+        <div id="optstat"></div>
+        <div id="layoutsrc" class="sub" style="margin-top:4px"></div>
+      </div>
+      <div class="sub" style="margin-top:8px">
+        drag orbit &middot; right/shift-drag pan &middot; scroll zoom
+      </div>
     </div>
-    <button id="b_opt">Optimize</button>
-    <button id="b_stop" disabled>Stop</button>
-    <button id="b_reset">Reset</button>
-    <div id="optstat"></div>
+    <div id="err"></div>
   </div>
-  <div class="sub" style="margin-top:8px">
-    drag orbit &middot; right/shift-drag pan &middot; scroll zoom
+  <div id="splitter"></div>
+  <div id="side">
+    <div id="tabs">
+      <button class="on" data-tab="chart">Chart</button>
+      <button data-tab="shaping">Shaping</button>
+    </div>
+    <div class="tab on" id="tab-chart">
+      <div class="tool" id="filebar">
+        <label>file <select id="files"></select></label>
+        <button id="b_load" class="alt">Load</button>
+        <button id="b_import" class="alt">Import…</button>
+        <input type="file" id="importfile" accept=".csv,.json,text/csv,application/json" hidden>
+        <button id="b_export_csv" class="alt">Export CSV</button>
+        <button id="b_export_json" class="alt">Export JSON</button>
+        <button id="b_saveas" class="alt">Save as…</button>
+      </div>
+      <div class="tool">
+        <label>repeats <input type="number" id="repeats" min="1" max="64" value="4"></label>
+        <label>fg <input type="color" id="fgcolor" value="#2f76c4"></label>
+        <label>bg <input type="color" id="bgcolor" value="#e9e5da"></label>
+        <label>zoom <input type="range" id="zoom" min="0.6" max="3" step="0.1" value="1"></label>
+        <button id="b_undo" class="alt" disabled title="undo (Ctrl/Cmd-Z)">&#8630; Undo</button>
+        <button id="b_redo" class="alt" disabled title="redo (Ctrl/Cmd-Shift-Z or Ctrl-Y)">&#8631; Redo</button>
+        <button id="b_save" class="alt" disabled>Save CSV</button>
+      </div>
+      <div id="chartstat" title="right-click a cell or header to insert / delete rounds and columns"></div>
+      <div id="gridwrap" tabindex="0"></div>
+    </div>
+    <div class="tab" id="tab-shaping">
+      <div id="shapingform">
+        <label class="full toggle" style="flex-direction: row; gap: 7px; align-items: center">
+          <input type="checkbox" id="s_show"> show spherical decrease guide (yellow outline)
+        </label>
+        <label>slices (repeats) <input type="number" id="s_slices" min="1" step="1"></label>
+        <label>repeat width (st) <input type="number" id="s_width" min="1" step="1"></label>
+        <label>stitches / in <input type="number" id="s_hg" step="0.1"></label>
+        <label>rounds / in <input type="number" id="s_vg" step="0.1"></label>
+        <label>sphere radius (in) <input type="number" id="s_radius" step="0.05"></label>
+        <label>equator round <input type="number" id="s_eq" min="0" step="1"></label>
+        <div class="full"><button id="s_auto" class="alt">Auto from chart &amp; gauge</button></div>
+        <div class="full sub" style="color:#8b93a1">
+          For each round above the equator the ideal slice width is
+          round(2&pi;R sin&theta; &middot; st/in / slices) with
+          &theta; = &pi;/2 &minus; rows/(rnd/in &middot; R); the outlined cells are
+          the two ends of that width, centred in the repeat. Radius defaults
+          to brim circumference / 2&pi;.
+        </div>
+      </div>
+      <div id="shapingtable"></div>
+    </div>
   </div>
 </div>
-<div id="err"></div>
 <script type="importmap">
   { "imports": { "three": "./lib/three.module.js" } }
 </script>

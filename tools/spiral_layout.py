@@ -1,148 +1,103 @@
 #!/usr/bin/env python
-"""Helical spiral layout for a circular double-knitting chart.
+"""Helical spiral layout for a circular hat chart.
 
-Reads a chart CSV in knit order (one line per round, cast-on first;
-symbols B/W for the two colors, O for slots not yet cast on, D for slots
-already killed by a decrease), tiles one pattern repeat horizontally,
-and places every live stitch on a continuous helix: stitch i of a
-count-N round sits at fractional turn round + i/N, so the fabric is one
-unbroken spiral of yarn rather than a stack of closed rings. The
-cross-section radius of each round is implied by its live stitch count
-at the horizontal gauge, so the brim cast-ons flare outward and the
-crown decreases spiral closed.
+Reads a chart CSV (see chart.py: one line per round, cast-on first,
+cells ``f`` / ``b`` / ``f-k2tog`` / blank), tiles one pattern repeat
+horizontally, and places every live stitch on a continuous helix:
+stitch i of a count-N round sits at fractional turn round + i/N, so the
+fabric is one unbroken spiral of yarn rather than a stack of closed
+rings. The cross-section radius of each round is the circle whose
+chord between neighbouring stitches is exactly 1/horizontal_gauge.
 
-Outputs a JSON bundle for the web viewer: positions (inches), per-stitch
-color / round / shaping flags, the yarn path, and inter-round edges.
-The position tensor is built with torch and is the same N x 3 leaf
-tensor a later edge-length / planarity optimizer would consume.
+The cast-on round is the anchor: it is placed on a flat circle at z=0
+with gauge-exact stitch spacing and flagged ``anchor_flag`` so the
+optimizer holds it there; everything above hangs from it.
+
+``build_bundle`` is the single entry point (used by the server on every
+edit); the CLI just writes the bundle to JSON for the static viewer.
 """
 
 import argparse
-import csv
 import json
 import math
 import os
+import sys
 
 import torch
 
-LIVE = ("B", "W")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from chart import Chart, nearest_slot  # noqa: E402
 
 
-def read_chart(path, repeats):
-    with open(path, newline="") as f:
-        rows = [[s.strip() for s in row] * repeats for row in csv.reader(f) if row]
-    width = len(rows[0])
-    for i, row in enumerate(rows):
-        if len(row) != width:
-            raise ValueError(f"round {i} has {len(row)} cells, expected {width}")
-    return rows
+def ring_radius(count, horizontal_gauge):
+    """Radius of the circle on which ``count`` stitches sit with a
+    chord of exactly 1/horizontal_gauge between neighbours."""
+    if count < 2:
+        return 0.0
+    return (1.0 / horizontal_gauge) / (2.0 * math.sin(math.pi / count))
 
 
-def resolve_rounds(rows, extend_crown=False, wedges=8):
-    """Per-round live slots, colors, and shaping events.
-
-    D marks are cumulative in the chart (a killed column stays marked to
-    the crown), but a dead-set keeps slots dead even if a chart re-colors
-    one. newly_dead / newly_cast record the round each event happens.
-    With extend_crown, decrease diagonals keep consuming their nearest
-    live neighbor past the end of the chart until <= wedges remain.
-    """
-    n_slots = len(rows[0])
-    dead = set()
-    rounds = []  # (live_slots, colors_by_slot, newly_dead, newly_cast)
-    for r, row in enumerate(rows):
-        newly_dead = [s for s, sym in enumerate(row)
-                      if sym == "D" and s not in dead]
-        dead.update(newly_dead)
-        live = [s for s in range(n_slots)
-                if s not in dead and row[s] in LIVE]
-        col = {s: (1 if row[s] == "B" else 0) for s in live}
-        newly_cast = [s for s in live if r > 0 and rows[r - 1][s] == "O"]
-        rounds.append((live, col, newly_dead, newly_cast))
-
-    if not rounds[0][0]:
-        raise ValueError("first round has no live stitches; "
-                         "is the chart upside-down?")
-
-    last_dec = next((r for r in reversed(rounds) if r[2]), None)
-    if extend_crown and last_dec is not None:
-        frontier = list(last_dec[2])[:wedges]
-        while len(rounds[-1][0]) - len(frontier) >= wedges:
-            prev_live, prev_col, _, _ = rounds[-1]
-            newly_dead = []
-            live = list(prev_live)
-            for s in frontier:
-                victim = min(live, key=lambda c: min((c - s) % n_slots,
-                                                     (s - c) % n_slots))
-                live.remove(victim)
-                newly_dead.append(victim)
-            dead.update(newly_dead)
-            col = {s: prev_col[s] for s in live}
-            rounds.append((live, col, newly_dead, []))
-            frontier = newly_dead
-    return rounds
-
-
-def build_layout(rounds, horizontal_gauge, vertical_gauge,
-                 n_chart_rounds, device="cpu"):
-    n_slots = max(max(r[0]) for r in rounds if r[0]) + 1
-
-    def nearest_slot(slots, s):
-        return min(slots, key=lambda c: min((c - s) % n_slots,
-                                            (s - c) % n_slots))
+def build_layout(rounds, horizontal_gauge, vertical_gauge, chart_width,
+                 device="cpu"):
+    n_slots = max(max(rd.live) for rd in rounds if rd.live) + 1
 
     index_of = {}
     positions = []
     colors = []
+    ops = []
     round_index = []
     decrease_flag = []
     increase_flag = []
+    anchor_flag = []
     synthesized = []
     stitch_counts = []
     stitch_slot = []
+    chart_cell = []
     n = 0
-    for r, (slots, col, newly_dead, newly_cast) in enumerate(rounds):
-        count = len(slots)
+    for r, rd in enumerate(rounds):
+        count = rd.count
         stitch_counts.append(count)
-        # The k2tog for each newly dead slot is its nearest survivor.
-        k2togs = {nearest_slot(slots, s) for s in newly_dead}
-        cast_ons = set(newly_cast)
-        for i, s in enumerate(slots):
+        radius = ring_radius(count, horizontal_gauge)
+        for i, s in enumerate(rd.live):
+            cell = rd.cells[s]
             index_of[(r, s)] = n
             stitch_slot.append(s)
+            # Round 0 is a flat, gauge-exact circle; the helix starts
+            # rising from round 1.
             turn = r + i / count
             theta = 2.0 * math.pi * turn
-            radius = (count / horizontal_gauge) / (2.0 * math.pi)
+            z = 0.0 if r == 0 else turn / vertical_gauge
             positions.append((radius * math.cos(theta),
-                              radius * math.sin(theta),
-                              turn / vertical_gauge))
-            colors.append(col[s])
+                              radius * math.sin(theta), z))
+            colors.append(cell.color)
+            ops.append(list(cell.ops))
             round_index.append(r)
-            decrease_flag.append(s in k2togs)
-            increase_flag.append(s in cast_ons)
-            synthesized.append(r >= n_chart_rounds)
+            decrease_flag.append(cell.is_decrease)
+            increase_flag.append(cell.is_increase or s in rd.newly_cast)
+            anchor_flag.append(r == 0)
+            synthesized.append(rd.synthesized)
+            chart_cell.append([r, s % chart_width])
             n += 1
-    live_slots = [r[0] for r in rounds]
+    live_slots = [rd.live for rd in rounds]
 
     # Yarn path: one continuous strand through every stitch in knit order.
     yarn_edges = [[i, i + 1] for i in range(n - 1)]
 
     # Column edges: each stitch hangs from the nearest live stitch one
     # round below (skipped for freshly cast-on slots, which have no
-    # parent); decreased slots additionally feed up into their k2tog so
+    # parent); consumed slots additionally feed up into their k2tog so
     # every stitch is bound upward.
     column_edges = []
     for r in range(1, len(rounds)):
-        _, _, _, newly_cast = rounds[r]
-        cast_ons = set(newly_cast)
+        cast_ons = set(rounds[r].newly_cast)
         for s in live_slots[r]:
             if s in cast_ons:
                 continue
-            below = nearest_slot(live_slots[r - 1], s)
+            below = nearest_slot(live_slots[r - 1], s, n_slots)
             column_edges.append([index_of[(r - 1, below)], index_of[(r, s)]])
         for s in live_slots[r - 1]:
             if (r, s) not in index_of:
-                above = nearest_slot(live_slots[r], s)
+                above = nearest_slot(live_slots[r], s, n_slots)
                 column_edges.append([index_of[(r - 1, s)],
                                      index_of[(r, above)]])
 
@@ -159,9 +114,9 @@ def build_layout(rounds, horizontal_gauge, vertical_gauge,
         right = index_of[(r, slots[(i + 1) % len(slots)])]
         down = up = -1
         if r > 0:
-            down = index_of[(r - 1, nearest_slot(live_slots[r - 1], s))]
+            down = index_of[(r - 1, nearest_slot(live_slots[r - 1], s, n_slots))]
         if r + 1 < len(rounds):
-            up = index_of[(r + 1, nearest_slot(live_slots[r + 1], s))]
+            up = index_of[(r + 1, nearest_slot(live_slots[r + 1], s, n_slots))]
         neighbors.append([left, right, down, up])
 
     # Leaf tensor with gradients enabled, ready for the layout optimizer.
@@ -171,14 +126,52 @@ def build_layout(rounds, horizontal_gauge, vertical_gauge,
     return pos, {
         "neighbors": neighbors,
         "colors": colors,
+        "ops": ops,
         "round_index": round_index,
         "decrease_flag": decrease_flag,
         "increase_flag": increase_flag,
+        "anchor_flag": anchor_flag,
         "synthesized": synthesized,
         "stitch_counts": stitch_counts,
+        "chart_cell": chart_cell,
         "yarn_edges": yarn_edges,
         "column_edges": column_edges,
     }
+
+
+def build_bundle(chart, repeats=4, horizontal_gauge=8.0, vertical_gauge=12.0,
+                 extend_crown=False):
+    """Compile a Chart into the JSON-serialisable viewer bundle."""
+    rounds = chart.rounds(repeats, extend_crown=extend_crown)
+    pos, meta = build_layout(rounds, horizontal_gauge, vertical_gauge,
+                             chart_width=chart.width)
+    first_dec = next((r for r, rd in enumerate(rounds)
+                      if any(c.is_decrease for c in rd.cells.values())),
+                     len(rounds))
+    return {
+        "name": chart.name,
+        "horizontal_gauge": horizontal_gauge,
+        "vertical_gauge": vertical_gauge,
+        "repeats": repeats,
+        "chart_width": chart.width,
+        "chart_height": chart.height,
+        "n_stitches": pos.shape[0],
+        "n_rounds": len(rounds),
+        "n_chart_rounds": chart.height,
+        "crown_start_round": first_dec,
+        "positions": [[round(v, 5) for v in p] for p in pos.detach().tolist()],
+        **meta,
+    }
+
+
+def describe(bundle):
+    counts = bundle["stitch_counts"]
+    n_synth = bundle["n_rounds"] - bundle["n_chart_rounds"]
+    return (f"{bundle['name']}: {bundle['n_stitches']} stitches over "
+            f"{bundle['n_rounds']} rounds ({counts[0]} -> {counts[-1]}), "
+            f"{sum(bundle['increase_flag'])} cast-ons, "
+            f"{sum(bundle['decrease_flag'])} k2togs, crown starts round "
+            f"{bundle['crown_start_round']}, {n_synth} synthesized rounds")
 
 
 def main():
@@ -195,37 +188,16 @@ def main():
                          "decreasing past its last round until closed")
     args = ap.parse_args()
 
-    rows = read_chart(args.chart_csv, args.repeats)
-    rounds = resolve_rounds(rows, extend_crown=args.extend_crown)
-    pos, meta = build_layout(rounds, args.horizontal_gauge,
-                             args.vertical_gauge, n_chart_rounds=len(rows))
-
-    counts = meta["stitch_counts"]
-    first_dec = next((r for r, rd in enumerate(rounds) if rd[2]), len(rounds))
-    bundle = {
-        "name": os.path.splitext(os.path.basename(args.chart_csv))[0],
-        "horizontal_gauge": args.horizontal_gauge,
-        "vertical_gauge": args.vertical_gauge,
-        "repeats": args.repeats,
-        "n_stitches": pos.shape[0],
-        "n_rounds": len(rounds),
-        "n_chart_rounds": len(rows),
-        "crown_start_round": first_dec,
-        "stitch_counts": counts,
-        "positions": [[round(v, 5) for v in p] for p in pos.detach().tolist()],
-        **meta,
-    }
+    chart = Chart.read_csv(args.chart_csv)
+    for r, c, msg in chart.errors():
+        print(f"warning: row {r} col {c}: {msg} (treated as blank)",
+              file=sys.stderr)
+    bundle = build_bundle(chart, args.repeats, args.horizontal_gauge,
+                          args.vertical_gauge, args.extend_crown)
     os.makedirs(os.path.dirname(args.output_json) or ".", exist_ok=True)
     with open(args.output_json, "w") as f:
         json.dump(bundle, f)
-
-    n_dec = sum(meta["decrease_flag"])
-    n_inc = sum(meta["increase_flag"])
-    n_synth = len(rounds) - len(rows)
-    print(f"{bundle['name']}: {pos.shape[0]} stitches over {len(rounds)} "
-          f"rounds ({counts[0]} -> {counts[-1]}), {n_inc} cast-ons, "
-          f"{n_dec} k2togs, crown starts round {first_dec}, "
-          f"{n_synth} synthesized rounds -> {args.output_json}")
+    print(f"{describe(bundle)} -> {args.output_json}")
 
 
 if __name__ == "__main__":
