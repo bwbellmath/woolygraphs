@@ -49,6 +49,34 @@ Variables can be overridden on the command line, e.g.
 make serve CHART=patterns/my_hat.csv REPEATS=6 HGAUGE=7.5 VGAUGE=12.5 PORT=9000
 ```
 
+### Measuring edge lengths
+
+The **Edges** tab plots three overlaid distributions on shared bins, with a
+dashed rule at the gauge each one is aiming for:
+
+| series | edges | target |
+|---|---|---|
+| horizontal | each stitch to its right-hand neighbour in the round | `1/hg` |
+| vertical | each stitch to the one above it in its column | `1/vg` |
+| shaping | column edges touching a decrease or a cast-on | `1/vg` |
+
+Mean, median and standard deviation of the generated lengths are listed below
+the plot. The count axis is logarithmic by default because these distributions
+are extremely peaked and a linear axis erases the tail that matters; the x axis
+can switch from inches to error relative to gauge, which puts all three series
+on one reference line. `?tab=edges`, `?x=error` and `?strain=1` are linkable.
+
+Ticking **edge strain heatmap** in the left panel replaces the stitches with
+their edges, coloured by signed error against gauge: black on gauge, orange
+too long, teal too short, with a slider for the full-scale value.
+
+Both views read the same edge set the optimizer works on, so they measure the
+layout rather than a separate approximation of it. As a baseline, 1000 Adam
+iterations on `small_cubes` take the root-mean-square error from 36.8% to 9.1%
+and the column-edge standard deviation from 0.0365 to 0.0056 inches, at the
+cost of a small systematic stretch (the inflate term pulls every edge a few
+percent long).
+
 ### Crown shaping
 
 A hat closes correctly when each round's live stitch count follows the
@@ -109,6 +137,8 @@ sheet. See `HAT_EDITOR_PLAN.md` for the architecture.
   whenever the chart is opened again, as long as it still fits the chart,
   and Reset returns to it. **Export JSON** also carries the current
   positions, so an exported bundle can be re-imported with its layout.
+- The **Edges** tab measures how uniform the layout's edge lengths actually
+  are (see below).
 - The **Shaping** tab overlays the ideal spherical decrease boundary in
   yellow and lists ideal versus actual width per round.
 

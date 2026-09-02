@@ -1,9 +1,13 @@
 import * as THREE from "three";
 import { ChartGrid, parseCell, COLORS, DECREASE_OPS, INCREASE_OPS } from "./chart.js";
 import { defaultParams, guideCells, idealWidths } from "./shaping.js";
+import { buildEdges, edgeLengths, relativeError, histogram,
+         STRAIN_ZERO, STRAIN_LONG, STRAIN_SHORT } from "./metrics.js";
+import { renderHistogram, renderStats } from "./histogram.js";
 
 const $ = (id) => document.getElementById(id);
-const STATIC = new URLSearchParams(location.search).get("data");
+const PARAMS = new URLSearchParams(location.search);
+const STATIC = PARAMS.get("data");
 
 const COLOR_DEC = new THREE.Color("#ff5c49");
 const COLOR_INC = new THREE.Color("#ffd23f");
@@ -64,6 +68,13 @@ const edgeGeo = new THREE.CylinderGeometry(1, 1, 1, 5, 1, true);
 const edgeMat = new THREE.MeshBasicMaterial({
   color: 0x04060a, transparent: true, opacity: 0.65, depthWrite: true,
 });
+// The strain mesh replaces dots and plain edges with one instanced
+// cylinder per measured edge, coloured by how far it is off gauge.
+const strainMat = new THREE.MeshBasicMaterial();
+const STRAIN_RADIUS = 0.022;
+const cZero = new THREE.Color(STRAIN_ZERO);
+const cLong = new THREE.Color(STRAIN_LONG);
+const cShort = new THREE.Color(STRAIN_SHORT);
 
 const m = new THREE.Matrix4();
 const _a = new THREE.Vector3(), _b = new THREE.Vector3();
@@ -77,7 +88,7 @@ let highlightCell = null; // "r,c" hovered in the grid
 let zMax = 1;
 let extent = 1; // max(height, diameter), for framing the camera
 
-function setEdgeMatrices(em, pairs) {
+function setEdgeMatrices(em, pairs, radius = EDGE_RADIUS) {
   const pos = d.positions;
   for (let i = 0; i < pairs.length; i++) {
     _a.fromArray(pos[pairs[i][0]]);
@@ -86,7 +97,7 @@ function setEdgeMatrices(em, pairs) {
     const len = _dir.length();
     _mid.addVectors(_a, _b).multiplyScalar(0.5);
     _q.setFromUnitVectors(_up, len > 1e-9 ? _dir.divideScalar(len) : _up);
-    _s.set(EDGE_RADIUS, Math.max(len, 1e-9), EDGE_RADIUS);
+    _s.set(radius, Math.max(len, 1e-9), radius);
     m.compose(_mid, _q, _s);
     em.setMatrixAt(i, m);
   }
@@ -95,7 +106,7 @@ function setEdgeMatrices(em, pairs) {
 
 function disposeHat() {
   if (!hat) return;
-  for (const o of [hat.mesh, hat.yarnLine, hat.colLines]) hatGroup.remove(o);
+  for (const o of [hat.mesh, hat.yarnLine, hat.colLines, hat.strain]) hatGroup.remove(o);
   hat = null;
 }
 
@@ -142,9 +153,20 @@ function loadBundle(bundle) {
     cellIndex.get(k).push(i);
   });
 
-  hat = { mesh, yarnLine, colLines, yarnPairs, stitchEnd, colEdgeEnd, cellIndex };
+  // Measured-edge model, shared by the strain heatmap and the Edges tab.
+  const edges = buildEdges(d);
+  const strain = new THREE.InstancedMesh(edgeGeo, strainMat, edges.pairs.length);
+  strain.instanceColor = new THREE.InstancedBufferAttribute(
+    new Float32Array(edges.pairs.length * 3), 3);
+  strain.visible = false;
+  hatGroup.add(strain);
+
+  hat = { mesh, yarnLine, colLines, strain, edges, yarnPairs, stitchEnd,
+          colEdgeEnd, cellIndex };
   setEdgeMatrices(yarnLine, yarnPairs);
   setEdgeMatrices(colLines, d.column_edges);
+  setEdgeMatrices(strain, edges.pairs, STRAIN_RADIUS);
+  paintStrain();
 
   // ---- UI ----
   $("name").textContent = d.name;
@@ -187,6 +209,36 @@ function paint() {
   hat.mesh.instanceColor.needsUpdate = true;
 }
 
+function strainScale() { return (+$("strainscale").value || 25) / 100; }
+
+function paintStrain() {
+  if (!hat) return;
+  const lengths = edgeLengths(hat.edges, d.positions);
+  const err = relativeError(hat.edges, lengths);
+  const scale = strainScale();
+  const c = new THREE.Color();
+  for (let i = 0; i < err.length; i++) {
+    const t = Math.max(-1, Math.min(1, err[i] / scale));
+    c.copy(cZero).lerp(t >= 0 ? cLong : cShort, Math.abs(t));
+    hat.strain.setColorAt(i, c);
+  }
+  hat.strain.instanceColor.needsUpdate = true;
+}
+
+function strainMode() { return $("t_strain").checked; }
+
+function applyStrainMode() {
+  const on = strainMode();
+  $("strainbox").hidden = !on;
+  $("strainval").textContent = `±${(strainScale() * 100).toFixed(0)}%`;
+  if (!hat) return;
+  hat.strain.visible = on;
+  hat.mesh.visible = !on;
+  hat.yarnLine.visible = !on && $("t_yarn").checked;
+  hat.colLines.visible = !on && $("t_cols").checked;
+  applyRound();
+}
+
 function applyPositions(newPositions) {
   const n = d.n_stitches;
   for (let i = 0; i < n; i++) {
@@ -197,6 +249,9 @@ function applyPositions(newPositions) {
   hat.mesh.instanceMatrix.needsUpdate = true;
   setEdgeMatrices(hat.yarnLine, hat.yarnPairs);
   setEdgeMatrices(hat.colLines, d.column_edges);
+  setEdgeMatrices(hat.strain, hat.edges.pairs, STRAIN_RADIUS);
+  paintStrain();
+  if ($("e_live").checked) refreshEdges();
 }
 
 function applyRound() {
@@ -206,11 +261,14 @@ function applyRound() {
   hat.mesh.count = hat.stitchEnd[r - 1];
   hat.yarnLine.count = Math.max(hat.stitchEnd[r - 1] - 1, 0);
   hat.colLines.count = hat.colEdgeEnd[r - 1];
+  hat.strain.count = hat.edges.endByRound[r - 1];
 }
 $("round").oninput = applyRound;
-$("t_yarn").onchange = (e) => (hat.yarnLine.visible = e.target.checked);
-$("t_cols").onchange = (e) => (hat.colLines.visible = e.target.checked);
+$("t_yarn").onchange = (e) => (hat.yarnLine.visible = e.target.checked && !strainMode());
+$("t_cols").onchange = (e) => (hat.colLines.visible = e.target.checked && !strainMode());
 $("t_dec").onchange = paint;
+$("t_strain").onchange = applyStrainMode;
+$("strainscale").oninput = () => { paintStrain(); applyStrainMode(); };
 
 // ---------- chart pane ----------
 let serverOnline = false;
@@ -321,6 +379,7 @@ function applyLoaded(body) {
   describeChart(chart);
   autoShaping();
   refreshShaping();
+  refreshEdges();
   showState({ running: false, iterations_total: 0 });
   dist = extent * 1.8;
   updateCamera();
@@ -407,11 +466,16 @@ $("zoom").oninput = (e) => {
   $("gridwrap").style.fontSize = `${Math.round(8 * z)}px`;
 };
 
-// Tabs
+// Tabs. ?tab=edges|shaping|chart opens one directly (linkable view state).
+function showTab(name) {
+  const btn = $("tabs").querySelector(`button[data-tab="${name}"]`);
+  if (btn) btn.onclick ? btn.onclick() : btn.click();
+}
 $("tabs").querySelectorAll("button").forEach((b) => {
   b.onclick = () => {
     $("tabs").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
     document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t.id === `tab-${b.dataset.tab}`));
+    if (b.dataset.tab === "edges") refreshEdges();
   };
 });
 
@@ -462,6 +526,29 @@ function refreshShaping() {
 S.forEach((k) => ($(`s_${k}`).oninput = refreshShaping));
 $("s_show").onchange = refreshShaping;
 $("s_auto").onclick = () => { autoShaping(); refreshShaping(); };
+
+// ---------- edges tab ----------
+function edgesVisible() {
+  return $("tab-edges").classList.contains("on");
+}
+
+function refreshEdges() {
+  if (!hat || !edgesVisible()) return;
+  const bins = +$("e_bins").value || 48;
+  const lengths = edgeLengths(hat.edges, d.positions);
+  // The table always reports the generated lengths; the plot can show
+  // those or the same edges relative to their own gauge.
+  const byLength = histogram(hat.edges, lengths, bins);
+  const plotted = $("e_mode").value === "error"
+    ? histogram(hat.edges, relativeError(hat.edges, lengths), bins, "error")
+    : byLength;
+  renderHistogram($("edgesvg"), plotted, { logY: $("e_log").checked });
+  renderStats($("edgestats"), byLength);
+}
+$("e_bins").oninput = refreshEdges;
+$("e_mode").onchange = refreshEdges;
+$("e_log").onchange = refreshEdges;
+$("e_refresh").onclick = refreshEdges;
 
 // ---------- 3D hover -> chart cell ----------
 const raycaster = new THREE.Raycaster();
@@ -655,6 +742,10 @@ async function boot() {
   refreshFiles(chart.path);
   autoShaping();
   refreshShaping();
+  if (PARAMS.get("strain") === "1") $("t_strain").checked = true;
+  if (PARAMS.get("x")) $("e_mode").value = PARAMS.get("x");
+  applyStrainMode();
+  if (PARAMS.get("tab")) showTab(PARAMS.get("tab"));
   dist = extent * 1.8;
   resize();
   updateCamera();

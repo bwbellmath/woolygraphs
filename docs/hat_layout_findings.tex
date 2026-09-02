@@ -1,0 +1,248 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+
+\title{Hat layout in WoolyGraphs:\\crown shaping and edge-length uniformity}
+\author{}
+\date{2 September 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Notes on two questions about the circular-hat pipeline. First, what makes a
+knitted crown close like a sphere, and how well do our charts do it. Second,
+how uniform are the edge lengths the layout optimizer produces, measured
+against the gauge they are supposed to hit. All measurements are at
+8 stitches per inch horizontal and 12 rounds per inch vertical
+gauge. These are single-run measurements of the current code, recorded as a
+baseline for comparing optimization protocols later, not averaged trials.
+\end{abstract}
+
+\section{Setup and notation}
+
+A chart is one pattern repeat: rounds in knit order, one cell per stitch slot,
+blank where no stitch exists. The hat is that chart tiled $P$ times around.
+Write $h$ for the horizontal gauge in stitches per inch, $v$ for the vertical
+gauge in rounds per inch, $W_0$ for the live stitches per repeat at the widest
+round, and $N_0 = P W_0$ for the total.
+
+The layout is a graph on stitch positions in $\mathbb{R}^3$. Two edge families
+carry the gauge:
+\begin{itemize}
+  \item \textbf{horizontal} (ring): each stitch to its right-hand neighbour in
+        the same round, rest length $1/h = 0.125\,\text{in}$;
+  \item \textbf{vertical} (column): each stitch to the stitch above it in its
+        column, rest length $1/v \approx 0.0833\,\text{in}$.
+\end{itemize}
+Column edges with a decrease or a cast-on at either end are counted separately
+as \textbf{shaping} edges. They nominally target $1/v$ as well, but a
+\texttt{k2tog} merges two columns into one, so there is no reason for them to
+sit at plain column gauge, and mixing them into the vertical bucket smears it.
+
+The initial layout places round $r$, stitch $i$ of $n_r$ on a helix at
+fractional turn $r + i/n_r$, at the radius whose chord between neighbouring
+stitches is exactly $1/h$. The cast-on round is flat at $z=0$ and is held fixed
+during optimization, so the fabric hangs from a brim that is gauge-exact by
+construction.
+
+\section{Crown shaping}
+
+\subsection{The law}
+
+A hat closes like a sphere when each round's live stitch count is the
+circumference of the sphere at that latitude. Taking the sphere radius from the
+brim,
+\begin{equation}
+  R = \frac{N_0}{2\pi h},
+  \qquad
+  W(r) = W_0 \cos\!\left(\frac{r - r_{\text{eq}}}{v R}\right),
+  \label{eq:sphere}
+\end{equation}
+where $r_{\text{eq}}$ is the round at which the cylinder ends. Rounds advance
+by arc length along the surface, $1/v$ per round, so the angle from the equator
+after $r - r_{\text{eq}}$ rounds is $(r-r_{\text{eq}})/(vR)$. The crown
+therefore needs
+\begin{equation}
+  \frac{\pi}{2} v R
+  \label{eq:height}
+\end{equation}
+rounds to reach the pole. This is the same relation as the
+\texttt{Sphere Hat Decs} spreadsheet, and it is what the Shaping tab overlays
+on the chart.
+
+Equation~\eqref{eq:height} is the constraint that bites in practice. It couples
+three things a chart author sets independently: the repeat count, the gauge,
+and how many rounds of chart sit above the cylinder. A crown that is too short
+for its own circumference cannot be fixed by moving decreases around.
+
+\subsection{Method}
+
+To ask whether a chart's crown \emph{is} a sphere, fit
+equation~\eqref{eq:sphere} to the chart's live-stitch profile with
+$r_{\text{eq}}$ as the only free parameter, and report the root-mean-square
+residual in stitches per repeat.
+
+The equator must be fitted rather than read off the chart. The obvious
+estimator, ``the last round at full width'', is biased: near the equator the
+cosine is flat, so a correctly shaped chart holds full width for several rounds
+past the true $r_{\text{eq}}$, and taking the last of them compresses the
+remaining crown and manufactures a large residual. On the reshaped
+\texttt{alt\_cubes} below, that estimator puts the equator seven rounds too
+high and reports a residual ten times the fitted one.
+
+\subsection{Results}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrrrr}
+\toprule
+chart & $P$ & cast-on & circ.\ (in) & crown rounds & needed & rms \\
+\midrule
+\texttt{small\_cubes}            & 4 & 136 & 17.0 & 50 & 54.0 & 1.41 \\
+\texttt{alt\_cubes}, as extracted & 6 & 120 & 15.0 & 50 & 49.5 & 0.74 \\
+\texttt{alt\_cubes}, reshaped    & 6 & 120 & 15.0 & 49 & 49.5 & 0.29 \\
+\texttt{alt\_cubes}, reshaped    & 7 & 140 & 17.5 & 55 & 57.7 & 0.76 \\
+\bottomrule
+\end{tabular}
+\caption{Best-fit sphere residual, in stitches per repeat. ``Crown rounds'' is
+what the chart provides above the fitted equator; ``needed'' is
+equation~\eqref{eq:height}.}
+\label{tab:shape}
+\end{table}
+
+\texttt{small\_cubes} is the reference: at four repeats it tracks the sphere to
+$\pm 2.5$ stitches per repeat, or about 4\% of its repeat width, and it is the
+chart whose knitted result is known to be good. Its residual is not the
+smallest in the table, which is worth keeping in mind before treating small
+residuals as the goal in themselves.
+
+The extracted \texttt{alt\_cubes} crown fits at rms 0.74, but the residual
+understates two visible defects. It holds full width about ten rounds too long
+and then decreases faster than the sphere to catch up, and it reaches one
+stitch per repeat five rounds before the chart ends, so the last five rounds
+are a single-stitch spike rather than a closure. Reshaping re-times the same
+gore geometry onto equation~\eqref{eq:sphere}, keeping the colours and the
+column at which the wedge opens: the profile then agrees with the sphere to
+within $\pm 0.7$ stitches per repeat and closes smoothly ($5,5,4,3,2,2,1,1$
+over the last eight rounds, against $5,3,3,1,1,1,1,1$ before).
+
+The shaping in a chart is correct for one repeat count only. At $P=7$ the same
+reshaped chart is a 17.5\,\text{in} hat, closer to \texttt{small\_cubes} in size,
+but equation~\eqref{eq:height} then asks for 58 crown rounds where the chart has
+55, and the residual roughly triples. That is still better than the chart
+started, so $P=7$ is a defensible trade of shape for size; making it exact means
+re-running the reshape at $P=7$ and adding about three rounds of crown.
+
+\section{Edge-length uniformity}
+
+\subsection{Method}
+
+The layout optimizer minimises a weighted sum of three terms: a gauge term
+(squared relative error of every edge against its rest length), an inflate term
+($1/r$ repulsion from the centroid, which keeps the surface from collapsing),
+and a smoothness term on the solid angle subtended at each vertex by its
+neighbour fan.
+
+To measure the result, take the same edge set the optimizer works on and record
+the realised length of every edge. For \texttt{small\_cubes} at four repeats
+that is 16{,}888 edges: 8{,}448 horizontal, 8{,}016 vertical, and
+424 shaping. Report per-class mean, median and standard deviation of the
+lengths, and summarise the whole layout by the root-mean-square of the relative
+error $\ell_e / \ell^{\,*}_e - 1$.
+
+\subsection{Results}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{llrrrr}
+\toprule
+layout & class & gauge (in) & mean (in) & std (in) & mean vs gauge \\
+\midrule
+initial helix
+ & horizontal & 0.1250 & 0.1252 & 0.0023 & $+0.2\%$ \\
+ & vertical   & 0.0833 & 0.0996 & 0.0365 & $+19.5\%$ \\
+ & shaping    & 0.0833 & 0.1517 & 0.0504 & $+82.0\%$ \\
+\addlinespace
+after 1000 iterations
+ & horizontal & 0.1250 & 0.1279 & 0.0063 & $+2.3\%$ \\
+ & vertical   & 0.0833 & 0.0904 & 0.0056 & $+8.5\%$ \\
+ & shaping    & 0.0833 & 0.0990 & 0.0084 & $+19.9\%$ \\
+\bottomrule
+\end{tabular}
+\caption{Edge lengths for \texttt{small\_cubes} at four repeats, before and
+after 1000 Adam iterations at learning rate 0.002 with weights
+$\lambda_{\text{gauge}}=1.0$, $\lambda_{\text{inflate}}=0.02$,
+$\lambda_{\text{smooth}}=0.1$.}
+\label{tab:edges}
+\end{table}
+
+Overall relative error falls from 36.8\% to 9.1\% rms. Three observations.
+
+\paragraph{The helix is exact where it is trivially exact.}
+Horizontal edges start at $+0.2\%$ with a standard deviation of
+0.0023\,\text{in}, because the helix places each ring at the radius that makes
+the chord exactly $1/h$. Vertical edges are exact in the cylinder for the same
+reason and wrong only in the crown, which is why their initial median is
+exactly $1/v$ while their mean is $+19.5\%$. A mean alone would have suggested
+the whole fabric was stretched; the median says the error is confined to the
+shaping region. Shaping edges start $+82\%$ long, since a decrease edge spans
+two columns in the initial placement.
+
+\paragraph{Optimization trades peak error for spread.}
+Root-mean-square error improves by a factor of four, and the vertical standard
+deviation tightens by a factor of six, from 0.0365 to
+0.0056\,\text{in}. But the number of edges worse than 10\% off gauge
+\emph{rises}, from 1{,}761 to 3{,}010: the optimizer removes a small
+population of very large errors and distributes a modest error widely. Any
+comparison between protocols should therefore report a distribution statistic,
+not a threshold count, which can move the wrong way while the layout improves.
+
+\paragraph{There is a systematic stretch.}
+Every class ends up long: $+2.3\%$ on rings, $+8.5\%$ on columns, $+19.9\%$ on
+shaping edges. The signs agree across classes and the effect survives further
+iterations, so this is the inflate term pulling against the gauge term at
+equilibrium rather than incomplete convergence. Lowering
+$\lambda_{\text{inflate}}$ should move all three distributions back onto their
+targets, and how far it can be lowered before the surface collapses is the
+obvious next experiment.
+
+\subsection{Tooling}
+
+The Edges tab plots the three distributions overlaid on shared bins with the
+gauge for each drawn as a rule, and lists mean, median and standard deviation
+beneath. The count axis is logarithmic by default: these distributions put
+thousands of edges in one bin and tens in the tail, and the tail is the part
+the question is about. The x axis can switch from inches to error relative to
+gauge, which places all three classes on a single reference line at zero.
+
+The strain heatmap in the main view replaces the stitches with their edges,
+coloured by signed error against gauge: black on gauge, orange too long, teal
+too short. On-gauge edges recede into the background, so what remains visible
+is exactly the problem regions. Both views read the same edge set as the
+optimizer, so they cannot disagree with it.
+
+\section{Caveats and next steps}
+
+Every number here is one run of one configuration, on charts of roughly
+8{,}500 stitches. Nothing is averaged over seeds, and the optimizer's
+starting point is deterministic, so run-to-run variation is unmeasured.
+
+The rest length assigned to shaping edges is a modelling choice, not a
+measurement. Calling it $1/v$ makes every decrease edge look 20\% long even in
+a good layout. A \texttt{k2tog} spans two columns at the round below, so a rest
+length nearer $\sqrt{(1/v)^2 + (1/2h)^2} \approx 0.104\,\text{in}$ may be the
+honest target; adopting it would change the shaping row of
+Table~\ref{tab:edges} substantially and is worth settling before protocols are
+compared on that class.
+
+For comparing optimization protocols, the measurements to hold fixed are the
+chart, the repeat count, the gauge, and the iteration budget; the statistics to
+report are rms relative error overall and per-class standard deviation. The
+current method is the baseline in Table~\ref{tab:edges}.
+
+\end{document}

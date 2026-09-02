@@ -117,6 +117,43 @@
   }
   .ctxmenu button:hover { background: #2f76c4; color: #fff; }
   .ctxmenu .sep { height: 1px; background: #2c313a; margin: 4px 2px; }
+  /* ---- edges tab ---- */
+  #edgeplot { position: relative; padding: 10px 12px 0; }
+  #edgeplot svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .histtip {
+    position: absolute; z-index: 20; pointer-events: none; min-width: 150px;
+    background: #1e222a; border: 1px solid #3a4150; border-radius: 7px;
+    padding: 6px 8px; font-size: 11px; color: #d7dae0;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+  }
+  .histtip .hd { color: #898781; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+  .histtip div { display: flex; align-items: center; gap: 6px; }
+  .histtip b { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .sw { width: 9px; height: 9px; border-radius: 2px; display: inline-block; flex: none; }
+  #edgestats { padding: 6px 12px 0; overflow-x: auto; }
+  #edgestats table { border-collapse: collapse; font-size: 12px; width: 100%; }
+  #edgestats th {
+    color: #898781; font-weight: 500; text-align: right; padding: 3px 6px;
+    border-bottom: 1px solid #383835; white-space: nowrap;
+  }
+  #edgestats td {
+    text-align: right; padding: 3px 6px; border-bottom: 1px solid #23272e;
+    font-variant-numeric: tabular-nums; color: #d7dae0; white-space: nowrap;
+  }
+  #edgestats td.name { text-align: left; display: flex; align-items: center; gap: 6px; }
+  #edgestats td.name .sub { color: #6f7785; }
+  #edgestats td.ok { color: #7bd88f; }
+  #edgestats td.miss { color: #ff8a80; }
+  .note { color: #6f7785; font-size: 11px; line-height: 1.5; }
+  #strainbox { margin: 6px 0 2px; padding-left: 20px; }
+  #strainbox input[type=range] { width: 100%; }
+  #strainlabel { display: flex; justify-content: space-between; color: #8b93a1; }
+  #strainlabel span:last-child { color: #fff; font-variant-numeric: tabular-nums; }
+  .ramp { display: flex; align-items: center; gap: 5px; color: #6f7785; font-size: 11px; }
+  .ramp i {
+    flex: 1; height: 7px; border-radius: 3px;
+    background: linear-gradient(90deg, #2fd6ab, #0a0c10 50%, #ff8a3d);
+  }
   #shapingform { padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; align-content: start; }
   #shapingform label { color: #8b93a1; display: flex; flex-direction: column; gap: 2px; }
   #shapingform input[type=number] { font: inherit; color: #fff; background: #14161a; border: 1px solid #2c313a; border-radius: 5px; padding: 3px 6px; }
@@ -146,6 +183,12 @@
       <label class="toggle"><input type="checkbox" id="t_yarn" checked> yarn spiral</label>
       <label class="toggle"><input type="checkbox" id="t_cols" checked> column edges</label>
       <label class="toggle"><input type="checkbox" id="t_dec" checked> highlight shaping</label>
+      <label class="toggle"><input type="checkbox" id="t_strain"> edge strain heatmap</label>
+      <div id="strainbox" hidden>
+        <div id="strainlabel"><span>full scale</span><span id="strainval"></span></div>
+        <input type="range" id="strainscale" min="2" max="50" step="1" value="25">
+        <div class="ramp"><span>shorter</span><i></i><span>longer</span></div>
+      </div>
       <div id="roundbox">
         <div id="roundlabel"><span>knit through round</span><span id="roundval"></span></div>
         <input type="range" id="round" min="1" value="1" step="1">
@@ -177,6 +220,7 @@
     <div id="tabs">
       <button class="on" data-tab="chart">Chart</button>
       <button data-tab="shaping">Shaping</button>
+      <button data-tab="edges">Edges</button>
     </div>
     <div class="tab on" id="tab-chart">
       <div class="tool" id="filebar">
@@ -199,6 +243,26 @@
       </div>
       <div id="chartstat" title="right-click a cell or header to insert / delete rounds and columns"></div>
       <div id="gridwrap" tabindex="0"></div>
+    </div>
+    <div class="tab" id="tab-edges">
+      <div class="tool">
+        <label>bins <input type="number" id="e_bins" min="8" max="120" step="4" value="48"></label>
+        <label>x <select id="e_mode">
+          <option value="length">length</option>
+          <option value="error">vs gauge</option>
+        </select></label>
+        <label class="toggle" style="gap:6px"><input type="checkbox" id="e_log" checked> log count</label>
+        <label class="toggle" style="gap:6px"><input type="checkbox" id="e_live" checked> follow optimizer</label>
+        <button id="e_refresh" class="alt">Refresh</button>
+      </div>
+      <div id="edgeplot"><svg id="edgesvg"></svg></div>
+      <div id="edgestats"></div>
+      <div class="note" style="padding:0 12px 18px">
+        Measured on the same edges the optimizer works on: each stitch to its
+        right-hand neighbour in the round, and each stitch to the one above it
+        in its column. Column edges touching a decrease or a cast-on are counted
+        as shaping, since they have no reason to sit at plain column gauge.
+      </div>
     </div>
     <div class="tab" id="tab-shaping">
       <div id="shapingform">

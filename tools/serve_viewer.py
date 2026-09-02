@@ -229,8 +229,16 @@ class EditorSession:
                 "errors": self.chart.errors()}
 
     def bundle_payload(self):
-        return {**self.bundle, "chart": self.chart_payload(),
-                "version": self.version}
+        payload = {**self.bundle, "chart": self.chart_payload(),
+                   "version": self.version}
+        # Hand back the layout as it stands now, not the positions the
+        # chart last compiled to, so a reload picks up optimizer progress.
+        if self.snapshot is not None:
+            payload["positions"] = self.snapshot
+            if self.opt is not None and self.opt.history:
+                payload["layout_source"] = (
+                    f"optimizer, {len(self.opt.history)} iterations")
+        return payload
 
     def set_chart(self, cells, repeats=None):
         cells = [[str(c).strip() for c in row] for row in cells]
