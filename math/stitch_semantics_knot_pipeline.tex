@@ -7,6 +7,7 @@
 \usepackage{amsmath,amssymb,amsthm,mathtools}
 \usepackage{booktabs}
 \usepackage{array}
+\usepackage{longtable}
 \usepackage{enumitem}
 \usepackage[hidelinks]{hyperref}
 
@@ -165,6 +166,80 @@ v \mapsto \bigl(\rho(v), C(v), \text{frontier action of }v\bigr).
 \]
 This is probably the most efficient bridge between the yarn graph and the crossing presentation.
 
+\section*{3A. Current Stitch Library and Existing Connection Data}
+
+\subsection*{3A.1 What is already encoded in the project}
+The current codebase already records more structure than just stitch names. For the purposes of a knot-theoretic semantics, the useful fields are:
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item \textbf{Row/column placement.} The stitch graph stores row order and left-to-right order.
+    \item \textbf{Horizontal adjacency.} A horizontal edge records consecutive stitches produced in the same row.
+    \item \textbf{Vertical dependence.} A vertical edge records that a new stitch is worked through a previously live stitch.
+    \item \textbf{Consume versus keep behavior.} The stitch definition records whether a source loop is removed from the needle or remains live.
+    \item \textbf{Cursor advance.} The number of stitches consumed from the working frontier is encoded by \texttt{cursor\_inc}.
+    \item \textbf{Production count.} The number of new stitch vertices is encoded by \texttt{add} and \texttt{extra}.
+    \item \textbf{Direction reversal.} A turn swaps left and right needle roles and changes the active frontier order.
+    \item \textbf{Topology markers.} Join and M\"obius markers identify the first and last stitches in the cast-on frontier.
+\end{enumerate}
+
+The fields that are \emph{not} yet explicit enough for knot calculations are:
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item which local strand is over and which is under,
+    \item how many diagram arcs are associated to one stitch event,
+    \item which crossings are induced by a stitch,
+    \item how the active frontier of arcs changes after each stitch.
+\end{enumerate}
+
+\subsection*{3A.2 Table of current stitch definitions}
+Table~\ref{tab:stitchdefs} documents the explicit stitch library in \texttt{stitches.txt} together with the special cable family handled in the parser.
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{1.15in} >{\raggedright\arraybackslash}p{0.7in} >{\raggedright\arraybackslash}p{0.7in} >{\raggedright\arraybackslash}p{0.6in} >{\raggedright\arraybackslash}p{0.55in} >{\raggedright\arraybackslash}p{2.85in}}
+\caption{Current stitch definitions and the connection data they contribute.}
+\label{tab:stitchdefs}\\
+\toprule
+Stitch & char & cursor\_inc & keep & new sts & Connection data already encoded \\
+\midrule
+\endfirsthead
+\toprule
+Stitch & char & cursor\_inc & keep & new sts & Connection data already encoded \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+`k` & k & 1 & no & 1 & One new stitch; horizontal adjacency to previous stitch in row; one consumed predecessor loop via a vertical edge. \\
+`p` & p & 1 & no & 1 & Same graph-level data as `k`; the knot-theoretic difference must therefore be carried by crossing sign/orientation, not by the current graph edges alone. \\
+`co` & k & 1 & yes & 1 via `extra` & Cast-on creates a new live stitch without consuming an older loop; horizontal adjacency only. The first cast-on is a boundary initializer, later cast-ons append to the cast-on frontier. \\
+`yo` & k & 1 & yes & 1 via `extra` & Like cast-on at graph level: adds a new live loop with horizontal adjacency but no consumed predecessor loop. \\
+`bo` & k & 1 & no & 0 & Consumes one live stitch and creates no new stitch vertex. This should be interpreted as a frontier-reduction move in the crossing semantics. \\
+`kfb` & k & 1 & no & 2 & One consumed predecessor loop produces two new stitch vertices. Horizontal adjacency links the two outputs; both are attached to the consumed loop. \\
+`kfb3` & k & 1 & no & 3 & One consumed predecessor loop produces three new stitch vertices in one row segment. \\
+`kfb4` & k & 1 & no & 4 & One consumed predecessor loop produces four new stitch vertices. \\
+`kfb5` & k & 1 & no & 5 & One consumed predecessor loop produces five new stitch vertices. \\
+`kfb3-3` & k & 3 & no & 3 & Consumes three predecessor loops and produces three new stitch vertices; this is already a many-to-many dependence gadget at graph level. \\
+`ssk` & k & 2 & no & 1 & Consumes two predecessor loops and produces one new stitch; graph-level decrease stitch. \\
+`k2tog` & k & 2 & no & 1 & Same graph-level arity as `ssk`; the distinction will have to appear in local crossing order if the two are diagrammatically different. \\
+`p2tog` & p & 2 & no & 1 & Purl-character decrease stitch with two consumed predecessors and one output. \\
+`k3tog` & k & 3 & no & 1 & Three predecessor loops merged into one new stitch. \\
+`turn` & k & 0 & yes & 0 & No new stitch vertex; swaps needle direction and reverses how future stitches encounter the frontier. This is the natural graph-level precursor to wrap-turn semantics. \\
+`join` & k & 0 & yes & 0 & Topology marker for circular knitting; identifies the last cast-on stitch with the first by a horizontal connection. \\
+`mobius` & k & 0 & yes & 0 & Topology marker for M\"obius knitting; identifies the last cast-on stitch with the first under a half-twist convention. \\
+`cnf`, `cnb` family & k & \(n\) & no & \(n\) & Implemented in the parser as cable moves: split \(n\) stitches into two halves, work one half before the other, and reconnect vertically/horizontally in that altered order. These are not yet explicit JSON stitch records. \\
+\end{longtable}
+
+\begin{remark}
+The table makes one structural point very clear: many stitch distinctions that matter diagrammatically are currently invisible at the graph-edge level. In particular, `k` versus `p`, `ssk` versus `k2tog`, and ordinary turn versus wrapped turn require extra crossing-order data.
+\end{remark}
+
+\subsection*{3A.3 Suggested extra fields for a mathematical stitch library}
+If the stitch file is extended for knot calculations, the minimal additional fields should be:
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item number of interface arcs consumed,
+    \item number of interface arcs produced,
+    \item ordered list of local crossings with signs,
+    \item residual arc identifier for any arc not already inherited from the yarn graph,
+    \item frontier replacement order,
+    \item boundary action for cast-on and final finishing moves.
+\end{enumerate}
+
 \section*{4. Algebraic Extraction by Fox Colorings}
 
 \subsection*{4.1 Global matrix}
@@ -285,6 +360,111 @@ For each primitive \(\sigma\), I recommend that the formal library include the f
 \end{enumerate}
 
 This is the exact amount of information needed for a compositional theorem and for implementation.
+
+\section*{7A. Two Ways To Keep Track of Arcs}
+There are two viable designs. Both can be made rigorous, but they optimize for different things.
+
+\subsection*{7A.1 Option 1: attach arcs to the yarn graph}
+In this design, the yarn graph remains the primary object, and diagram arcs are derived objects attached to yarn-graph incidences.
+
+\textbf{Data model.}
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item Each yarn-graph edge \(e\) carries one or more arc labels \(a_{e,1},\dots,a_{e,r(e)}\).
+    \item Each stitch vertex \(v\) carries at most one residual local arc \(\rho(v)\) not represented by a pre-existing yarn-graph edge.
+    \item Each stitch vertex stores a crossing list whose entries reference incident edge-arcs and possibly \(\rho(v)\).
+\end{enumerate}
+
+\textbf{Why this matches your current intuition.}
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item Most of the yarn path is already present in the yarn graph.
+    \item For generic stitches, only one arc appears to be missing, so one can attach that missing arc to the stitch vertex.
+    \item Crossing extraction becomes a local annotation pass on an already existing graph object.
+\end{enumerate}
+
+\textbf{Advantages.}
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item Minimal duplication of data.
+    \item Easy to prove consistency with the existing implementation.
+    \item Good for algorithms that alternate between geometric layout and knot extraction.
+\end{enumerate}
+
+\textbf{Disadvantages.}
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item Arcs are not first-class objects, so matrix extraction requires an extra normalization step.
+    \item Some crossings will be expressed in mixed coordinates: partly by yarn-graph edges and partly by stitch-local residual arcs.
+    \item Complicated stitches such as cables, wrap-turns, and bind-off may require edge subdivision conventions.
+\end{enumerate}
+
+\textbf{Recommended schema.}
+\[
+e \mapsto (\text{tail},\text{head},\text{orientation},\text{arc labels})
+\qquad
+v \mapsto (\rho(v), C(v), \text{frontier action})
+\]
+Then each crossing is stored as
+\[
+(o;u_1,u_2,\varepsilon,\text{stitch id}).
+\]
+
+\subsection*{7A.2 Option 2: list arcs only at the stitch level}
+In this design, the crossing presentation is independent of yarn-graph edges. Each stitch explicitly contributes all of its local arcs, and gluing occurs directly between stitch interfaces.
+
+\textbf{Data model.}
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item Every stitch \(\sigma\) has a local arc set
+    \[
+    A_\sigma = A^{\mathrm{in}}_\sigma \sqcup A^{\mathrm{out}}_\sigma \sqcup A^{\mathrm{int}}_\sigma.
+    \]
+    \item The global diagram is formed by gluing outgoing interface arcs of one stitch to incoming interface arcs of adjacent stitches according to the stitch program and row/needle order.
+    \item The yarn graph may still be derived afterward as a quotient or shadow of the arc system.
+\end{enumerate}
+
+\textbf{Advantages.}
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item Arcs are first-class objects from the start.
+    \item Crossing matrices are immediate to assemble.
+    \item Theorems about knot diagrams are cleaner because the primary object is already diagrammatic.
+\end{enumerate}
+
+\textbf{Disadvantages.}
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item More duplication, since the same yarn path information is stored again in a second structure.
+    \item Harder to maintain consistency with the existing yarn graph unless a formal equivalence theorem is proved.
+    \item Implementation is heavier because every stitch must declare all of its local arcs explicitly.
+\end{enumerate}
+
+\textbf{Recommended schema.}
+\[
+v \mapsto (A_v^{\mathrm{in}},A_v^{\mathrm{out}},A_v^{\mathrm{int}},C(v),\text{gluing rule},\text{frontier action})
+\]
+and the entire finished object is obtained by iterated gluing of stitch interfaces.
+
+\subsection*{7A.3 Comparison}
+\begin{center}
+\begin{tabular}{>{\raggedright\arraybackslash}p{2.1in} >{\raggedright\arraybackslash}p{2.0in} >{\raggedright\arraybackslash}p{2.0in}}
+\toprule
+Criterion & Arcs attached to yarn graph & Arcs listed only with stitches \\
+\midrule
+Closeness to current code & Very high & Moderate \\
+Ease of invariant extraction & Moderate & High \\
+Data duplication & Low & Higher \\
+Proof burden for representation & Lower initially & Cleaner once formalized \\
+Handling generic stitches & Very good & Good \\
+Handling cables/bind-off/wrap-turn & Requires careful edge subdivision & Natural but more verbose \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{7A.4 Recommendation}
+For this project, the best immediate choice is a hybrid that is mathematically phrased as Option 1:
+\begin{enumerate}[leftmargin=1.5em,itemsep=0.2em]
+    \item keep the yarn graph as the master combinatorial object,
+    \item attach arc labels to yarn-graph edges,
+    \item attach one residual arc and a crossing list to each stitch vertex,
+    \item define a normalization pass that converts this annotated yarn graph into a pure arc-and-crossing diagram when needed.
+\end{enumerate}
+
+This is the least disruptive representation and appears to match your observation that a generic stitch has only one arc not already accounted for by yarn-graph edges. If later the mathematics wants a cleaner primary object, Option 2 can be introduced as a derived equivalent presentation.
 
 \section*{8. Immediate Mathematical Tasks}
 \begin{enumerate}[leftmargin=1.5em,itemsep=0.25em]
