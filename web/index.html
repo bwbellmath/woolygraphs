@@ -106,6 +106,20 @@
     font: 10px monospace; padding: 0 2px; border: 2px solid #fff; background: #fff; color: #000;
   }
   .grid .rh.eq { color: #ffd23f; }
+  /* shaping sheet beside the chart: I / S / C */
+  #sheets { flex: 1; display: flex; min-height: 0; }
+  #gridwrap { min-width: 0; }
+  /* overflow hidden: scrolled from #gridwrap; the extra bottom padding
+     covers #gridwrap's horizontal scrollbar so both reach the last row */
+  #sidewrap { flex: none; overflow: hidden; padding: 6px 8px 40px 6px; border-left: 1px solid #2c313a; background: #14161a; }
+  .grid .sh { color: #ffd23f; font-size: 9px; font-weight: 700; display: grid; place-items: center; height: var(--ch); }
+  .grid .sc { color: #8b93a1; font-size: 9px; display: grid; place-items: center; height: var(--ch); font-variant-numeric: tabular-nums; background: #1c1f25; white-space: nowrap; }
+  .grid .sc.ok { color: #7bd88f; }
+  .grid .sc.miss { color: #ff8a80; }
+  .grid .sc.dec { color: #ffd23f; font-weight: 700; }
+  .grid .sc.ok { color: #7bd88f; }
+  .grid .sc.miss { color: #ff8a80; }
+  .grid .sc.dec { color: #ffd23f; font-weight: 700; }
   .ctxmenu {
     position: fixed; z-index: 50; min-width: 180px; padding: 4px;
     background: #1e222a; border: 1px solid #3a4150; border-radius: 8px;
@@ -168,7 +182,7 @@
   }
   #shapingform { padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; align-content: start; }
   #shapingform label { color: #8b93a1; display: flex; flex-direction: column; gap: 2px; }
-  #shapingform input[type=number] { font: inherit; color: #fff; background: #14161a; border: 1px solid #2c313a; border-radius: 5px; padding: 3px 6px; }
+  #shapingform input[type=number], #shapingform select { font: inherit; color: #fff; background: #14161a; border: 1px solid #2c313a; border-radius: 5px; padding: 3px 6px; }
   #shapingform .full { grid-column: 1 / -1; }
   #shapingtable { padding: 0 10px 20px; overflow: auto; flex: 1; color: #8b93a1; font-variant-numeric: tabular-nums; }
   #shapingtable table { border-collapse: collapse; font-size: 12px; }
@@ -176,6 +190,15 @@
   #shapingtable th { color: #6f7785; font-weight: 500; }
   #shapingtable td.miss { color: #ff8a80; }
   #shapingtable td.ok { color: #7bd88f; }
+  #s_leaves, #s_widest { color: #8b93a1; }
+  #s_leaves b, #s_widest b { color: #fff; font-weight: 600; }
+  #s_leaves b.ok, #s_widest b.ok { color: #7bd88f; }
+  #s_leaves b.warn, #s_widest b.warn { color: #ffb74d; }
+  #s_radius[readonly], #s_width[readonly] { color: #8b93a1; }
+  .tool input.narrow { width: 56px; }
+  .tool input[readonly] { color: #8b93a1; }
+  #shapingtable tr.beyond td { color: #5d6573; }
+  #spherestat { margin: 4px 0 0; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -196,13 +219,20 @@
       <label class="toggle"><input type="checkbox" id="t_cols" checked> column edges</label>
       <label class="toggle"><input type="checkbox" id="t_dec" checked> highlight shaping</label>
       <label class="toggle"><input type="checkbox" id="t_strain"> edge strain heatmap</label>
+      <label class="toggle" title="distance from the crown sphere's centre vs its radius (Shaping tab), for stitches at and above the shaping row">
+        <input type="checkbox" id="t_sphere"> sphere distance heatmap</label>
       <div id="strainbox" hidden>
         <div id="strainlabel"><span>full scale</span><span id="strainval"></span></div>
         <input type="range" id="strainscale" min="2" max="50" step="1" value="25">
         <div class="ramp"><i></i></div>
         <div class="rampticks">
-          <span id="rampmin"></span><span>0 · on gauge</span><span id="rampmax"></span>
+          <span id="rampmin"></span><span id="rampmid">0 · on gauge</span><span id="rampmax"></span>
         </div>
+        <div id="sphereopts" hidden>
+          <label class="toggle"><input type="checkbox" id="s_fit" checked> fit scale to data</label>
+          <label class="toggle"><input type="checkbox" id="t_guide" checked> show target sphere &amp; centre</label>
+        </div>
+        <div id="spherestat" class="sub" hidden></div>
       </div>
       <div id="roundbox">
         <div id="roundlabel"><span>knit through round</span><span id="roundval"></span></div>
@@ -249,6 +279,15 @@
       </div>
       <div class="tool">
         <label>repeats <input type="number" id="repeats" min="1" max="64" value="4"></label>
+        <label>st/in <input type="number" id="c_hg" min="0.5" step="0.1" class="narrow"></label>
+        <label>rnd/in <input type="number" id="c_vg" min="0.5" step="0.1" class="narrow"></label>
+        <label title="sheet row where the crown's half-sphere starts; saved with the chart">shaping row
+          <input type="number" id="c_row" min="1" step="1" class="narrow"></label>
+        <label>R (in) <input type="text" id="c_radius" readonly tabindex="-1" class="narrow"></label>
+        <label>R from <select id="c_rfrom">
+          <option value="layout">layout fit</option>
+          <option value="gauge">gauge</option>
+        </select></label>
         <label>fg <input type="color" id="fgcolor" value="#2f76c4"></label>
         <label>bg <input type="color" id="bgcolor" value="#e9e5da"></label>
         <label>zoom <input type="range" id="zoom" min="0.6" max="3" step="0.1" value="1"></label>
@@ -257,7 +296,10 @@
         <button id="b_save" class="alt" disabled>Save CSV</button>
       </div>
       <div id="chartstat" title="right-click a cell or header to insert / delete rounds and columns"></div>
-      <div id="gridwrap" tabindex="0"></div>
+      <div id="sheets">
+        <div id="gridwrap" tabindex="0"></div>
+        <div id="sidewrap" title="I ideal stitches per slice · S recommended decrease · C stitches in the chart"></div>
+      </div>
     </div>
     <div class="tab" id="tab-edges">
       <div class="tool">
@@ -287,18 +329,49 @@
           <input type="checkbox" id="s_show"> show spherical decrease guide (yellow outline)
         </label>
         <label>slices (repeats) <input type="number" id="s_slices" min="1" step="1"></label>
-        <label>repeat width (st) <input type="number" id="s_width" min="1" step="1"></label>
+        <label>repeat width (st) <input type="number" id="s_width" readonly tabindex="-1"
+          title="columns in the chart"></label>
         <label>stitches / in <input type="number" id="s_hg" step="0.1"></label>
         <label>rounds / in <input type="number" id="s_vg" step="0.1"></label>
-        <label>sphere radius (in) <input type="number" id="s_radius" step="0.05"></label>
-        <label>equator round <input type="number" id="s_eq" min="0" step="1"></label>
-        <div class="full"><button id="s_auto" class="alt">Auto from chart &amp; gauge</button></div>
+        <label>shaping row <input type="number" id="s_eq" min="1" step="1"
+          title="sheet row where the crown starts (the sphere's equator); saved with the chart"></label>
+        <label>sphere radius (in) <input type="text" id="s_radius" readonly tabindex="-1"></label>
+        <label>radius from <select id="s_rfrom"
+          title="layout fit: mean distance of the shaping row's stitches from their centre, in the current layout; gauge: that row's circumference / 2π">
+          <option value="layout">layout fit (shaping row stitches)</option>
+          <option value="gauge">gauge (circumference / 2&pi;)</option>
+        </select></label>
+        <label>decrease
+          <select id="s_dec">
+            <option value="k2tog">k2tog (&minus;1)</option>
+            <option value="k3tog">k3tog, centred (&minus;2)</option>
+          </select>
+        </label>
+        <div class="full"><button id="s_auto" class="alt" title="set the shaping row to the round before the chart's first decrease">Shaping row from first decrease</button></div>
+        <div class="full" id="s_leaves"></div>
+        <div class="full" id="s_widest"></div>
         <div class="full sub" style="color:#8b93a1">
-          For each round above the equator the ideal slice width is
-          round(2&pi;R sin&theta; &middot; st/in / slices) with
-          &theta; = &pi;/2 &minus; rows/(rnd/in &middot; R); the outlined cells are
-          the two ends of that width, centred in the repeat. Radius defaults
-          to brim circumference / 2&pi;.
+          The thin sheet beside the chart on the Chart tab follows these
+          settings: <b>I</b> ideal stitches per slice, <b>S</b> the decrease to
+          work that round (with a count when more than one), <b>C</b> stitches
+          the chart has now (green on target, red when off by more than one).
+        </div>
+        <div class="full sub" style="color:#8b93a1">
+          The crown is a hemisphere sitting on the shaping row, centred on the
+          mean position of that row's stitches in the current layout. Its
+          radius R is either fitted to the layout (their mean distance from
+          that centre, so it follows the optimizer) or that row's
+          circumference (all slices, at your st/in) / 2&pi;. Repeats, gauge,
+          shaping row and radius source are the same settings as on the Chart
+          tab. The leaves close it in a quarter meridian, (&pi;/2)R inches =
+          round((&pi;/2) R &middot; rnd/in) rounds. For each round above the
+          shaping row the ideal slice width is round(2&pi;R sin&theta; &middot;
+          st/in / slices) with &theta; = &pi;/2 &minus; rows/(rnd/in &middot; R);
+          the outlined cells are the two ends of that width, centred in the
+          repeat. Rows past the end of the chart are listed greyed so the
+          whole leaf is planned. With k3tog the width drops 2 at a time
+          (keeping its parity, so the outline narrows one stitch on each
+          side), and the k3togs column is how many to work per slice.
         </div>
       </div>
       <div id="shapingtable"></div>

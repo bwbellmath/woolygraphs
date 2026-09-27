@@ -1,0 +1,21 @@
+# Conda environment for woolygraphs.  `make` creates/updates it on demand;
+# to do it by hand:  conda env update -n woolygraphs -f environment.yml --prune
+name: woolygraphs
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  # hat editor / layout engine (tools/, tests/)
+  - pytorch=*=cpu*          # the optimizer runs on CPU; skips the CUDA download
+  - numpy
+  - openpyxl
+  - pytest
+  # older scripts at the repo root (knit.py, show.py, forces.py, ...)
+  - matplotlib
+  - pandas
+  - networkx
+  - progressbar2
+  # command-line tools the Makefile uses
+  - curl
+  - make

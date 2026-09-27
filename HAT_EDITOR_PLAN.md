@@ -16,7 +16,8 @@ blank (no stitch exists in that slot on that round) or a token:
 * `color` is `f` (foreground, default blue) or `b` (background, default
   white). Anything else is flagged as an error in the sheet and skipped.
 * `op` is a stitch modifier. Recognised today: `k2tog` / `ssk` (this
-  stitch consumes a neighbour: decrease), `co` (cast on mid-fabric: no
+  stitch consumes a neighbour: decrease), `k3tog` / `cdd` (centred
+  double decrease: consumes the nearest dead slot on each side), `co` (cast on mid-fabric: no
   parent below), `kfb` / `m1` (increase). Unknown ops are kept as text,
   displayed, and ignored by the graph builder so future stitch types do
   not need a format change.
@@ -29,7 +30,10 @@ ops: the live ring of a round is the ordered list of non-blank cells;
 a slot that is live now and blank on the round below has no parent (a
 cast-on); a slot live below and blank now was consumed. The ops just say
 *where* the author put the k2tog / cast-on, which is what the renderer
-and the optimizer need to know.
+and the optimizer need to know, and which decrease each consumed slot
+was worked into (`chart.resolve_merges`: k3togs claim one dead slot per
+side first, then k2togs the nearest remaining one, and anything left over
+goes to its nearest live stitch).
 
 `patterns/small_cubes.csv` is rewritten in this format. The legacy
 `B/W/O/D` chart that `tools/extract_small_cubes.py` pulls from the xlsx

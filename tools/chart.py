@@ -10,13 +10,21 @@ Structure (which slots are live, which have parents, which were
 consumed) is derived from blank-vs-filled cells. Ops only record where
 the author placed a decrease / cast-on, which the renderer and
 optimizer use as flags. Unknown ops are preserved and ignored.
+
+Chart-level parameters ride along as ``# key: value`` lines at the top of
+the CSV (currently ``shaping_row``: the 1-based sheet row where crown
+shaping begins, i.e. the sphere's equator). Unknown keys are preserved.
 """
 
 import csv
+import io
 from dataclasses import dataclass, field
 
 COLORS = ("b", "f")           # index == color id in the bundle (0 = bg, 1 = fg)
 DECREASE_OPS = {"k2tog", "ssk", "k3tog", "cdd", "p2tog"}
+# Centred double decreases: the stitch in this slot is the middle of
+# three, and the dead slots on either side of it are worked into it.
+CENTRED_DECREASE_OPS = {"k3tog", "cdd"}
 INCREASE_OPS = {"co", "kfb", "m1", "m1l", "m1r", "yo", "pfb"}
 
 
@@ -32,6 +40,18 @@ class Cell:
     @property
     def is_decrease(self):
         return any(o in DECREASE_OPS for o in self.ops)
+
+    @property
+    def is_centred_decrease(self):
+        return any(o in CENTRED_DECREASE_OPS for o in self.ops)
+
+    @property
+    def consumes(self):
+        """Stitches from the round below this one absorbs besides its own
+        (k2tog 1, k3tog 2)."""
+        if self.is_centred_decrease:
+            return 2
+        return 1 if self.is_decrease else 0
 
     @property
     def is_increase(self):
@@ -60,6 +80,8 @@ class Round:
     newly_dead: list            # slots live on the previous round, blank now
     newly_cast: list            # slots blank on the previous round, live now
     synthesized: bool = False   # generated past the end of the chart
+    # newly dead slot -> live slot of the stitch it was worked into
+    merged_into: dict = field(default_factory=dict)
 
     @property
     def count(self):
@@ -67,13 +89,30 @@ class Round:
 
 
 class Chart:
-    def __init__(self, rows, name="chart"):
+    def __init__(self, rows, name="chart", meta=None):
         rows = [list(r) for r in rows]
         width = max((len(r) for r in rows), default=0)
         for r in rows:
             r.extend([""] * (width - len(r)))
         self.rows = rows
         self.name = name
+        self.meta = dict(meta or {})
+
+    @property
+    def shaping_row(self):
+        """1-based sheet row where crown shaping begins, or None."""
+        try:
+            row = int(self.meta.get("shaping_row"))
+        except (TypeError, ValueError):
+            return None
+        return row if 1 <= row <= self.height else None
+
+    @shaping_row.setter
+    def shaping_row(self, row):
+        if row is None or row == "":
+            self.meta.pop("shaping_row", None)
+        else:
+            self.meta["shaping_row"] = str(int(row))
 
     @property
     def width(self):
@@ -84,22 +123,37 @@ class Chart:
         return len(self.rows)
 
     @classmethod
+    def from_csv_text(cls, text, name="chart"):
+        """Parse CSV text: leading ``# key: value`` lines are chart meta."""
+        lines = text.splitlines()
+        meta = {}
+        while lines and lines[0].lstrip().startswith("#"):
+            key, sep, value = lines.pop(0).lstrip()[1:].partition(":")
+            if sep and key.strip():
+                meta[key.strip()] = value.strip().rstrip(",")
+        rows = [[c.strip() for c in row]
+                for row in csv.reader(io.StringIO("\n".join(lines)))]
+        return cls(strip_trailing_blank(rows), name=name, meta=meta)
+
+    @classmethod
     def read_csv(cls, path, name=None):
         with open(path, newline="") as f:
-            rows = [[c.strip() for c in row] for row in csv.reader(f)]
-        rows = strip_trailing_blank(rows)
+            text = f.read()
         if name is None:
             import os
             name = os.path.splitext(os.path.basename(path))[0]
-        return cls(rows, name=name)
+        return cls.from_csv_text(text, name=name)
 
     def write_csv(self, path):
         with open(path, "w", newline="") as f:
+            for key, value in self.meta.items():
+                f.write(f"# {key}: {value}\n")
             csv.writer(f).writerows(self.rows)
 
     def to_json(self):
         return {"cells": self.rows, "width": self.width,
-                "height": self.height, "name": self.name}
+                "height": self.height, "name": self.name,
+                "shaping_row": self.shaping_row}
 
     def errors(self):
         """[(row, col, message)] for cells that do not parse."""
@@ -146,8 +200,10 @@ class Chart:
             live_set = set(live)
             newly_dead = sorted(prev_live - live_set)
             newly_cast = sorted(live_set - prev_live) if r > 0 else []
-            rounds.append(Round(live, {s: row[s] for s in live},
-                                newly_dead, newly_cast))
+            cells = {s: row[s] for s in live}
+            rounds.append(Round(live, cells, newly_dead, newly_cast,
+                                merged_into=resolve_merges(
+                                    live, cells, newly_dead, n_slots)))
             prev_live = live_set
 
         last_dec = next((rd for rd in reversed(rounds) if rd.newly_dead), None)
@@ -171,7 +227,10 @@ class Chart:
                     k = nearest_slot(live, s, n_slots)
                     cells[k] = Cell(cells[k].color, cells[k].ops + ("k2tog",))
                 rounds.append(Round(live, cells, newly_dead, [],
-                                    synthesized=True))
+                                    synthesized=True,
+                                    merged_into=resolve_merges(
+                                        live, cells, newly_dead,
+                                        n_slots)))
                 frontier = newly_dead
         return rounds
 
@@ -184,7 +243,9 @@ def from_bundle(bundle):
     colors, ops); repeat 0 of every round is read back.
     """
     if "cells" in bundle:
-        return Chart(bundle["cells"], name=bundle.get("name", "chart"))
+        chart = Chart(bundle["cells"], name=bundle.get("name", "chart"))
+        chart.shaping_row = bundle.get("shaping_row")
+        return chart
     if "chart" in bundle:
         return from_bundle(bundle["chart"])
     if "chart_cell" not in bundle:
@@ -213,6 +274,51 @@ def strip_trailing_blank(rows):
 def nearest_slot(slots, s, n_slots):
     """Live slot closest to slot s around the ring."""
     return min(slots, key=lambda c: min((c - s) % n_slots, (s - c) % n_slots))
+
+
+def resolve_merges(live, cells, newly_dead, n_slots):
+    """Assign each newly dead slot to the stitch it was worked into.
+
+    A centred decrease (k3tog, cdd) takes the nearest newly dead slot on
+    each side of it, so its three parents are left, itself and right and
+    it sits over the middle one. Other decreases (k2tog, ssk, ...) take
+    the nearest remaining dead slot on either side (left on a tie).
+    Neither looks past a stitch live on this round. Dead slots no
+    decrease claims fall back to the nearest live stitch.
+    """
+    live_set = set(live)
+    dead = set(newly_dead)     # slots dead for longer are stepped over
+    merged = {}
+
+    def walk(s, step):
+        """First unclaimed newly dead slot from s in direction step,
+        and its distance; (None, None) if a live stitch comes first."""
+        for d in range(1, n_slots):
+            t = (s + step * d) % n_slots
+            if t in live_set:
+                return None, None
+            if t in dead and t not in merged:
+                return t, d
+        return None, None
+
+    decs = [s for s in live if cells[s].consumes]
+    for s in decs:
+        if cells[s].is_centred_decrease:
+            for step in (-1, 1):
+                t, _ = walk(s, step)
+                if t is not None:
+                    merged[t] = s
+    for s in decs:
+        if not cells[s].is_centred_decrease:
+            (lt, ld), (rt, rd) = walk(s, -1), walk(s, 1)
+            if lt is not None and (rt is None or ld <= rd):
+                merged[lt] = s
+            elif rt is not None:
+                merged[rt] = s
+    for t in newly_dead:
+        if t not in merged:
+            merged[t] = nearest_slot(live, t, n_slots)
+    return merged
 
 
 def from_legacy(rows, implicit_decreases=False):

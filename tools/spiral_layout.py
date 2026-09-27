@@ -85,8 +85,9 @@ def build_layout(rounds, horizontal_gauge, vertical_gauge, chart_width,
 
     # Column edges: each stitch hangs from the nearest live stitch one
     # round below (skipped for freshly cast-on slots, which have no
-    # parent); consumed slots additionally feed up into their k2tog so
-    # every stitch is bound upward.
+    # parent); consumed slots additionally feed up into the decrease
+    # they were worked into (Round.merged_into), so a k3tog has three
+    # parents -- left, centre, right -- and every stitch is bound upward.
     column_edges = []
     for r in range(1, len(rounds)):
         cast_ons = set(rounds[r].newly_cast)
@@ -97,7 +98,7 @@ def build_layout(rounds, horizontal_gauge, vertical_gauge, chart_width,
             column_edges.append([index_of[(r - 1, below)], index_of[(r, s)]])
         for s in live_slots[r - 1]:
             if (r, s) not in index_of:
-                above = nearest_slot(live_slots[r], s, n_slots)
+                above = rounds[r].merged_into[s]
                 column_edges.append([index_of[(r - 1, s)],
                                      index_of[(r, above)]])
 
@@ -116,7 +117,10 @@ def build_layout(rounds, horizontal_gauge, vertical_gauge, chart_width,
         if r > 0:
             down = index_of[(r - 1, nearest_slot(live_slots[r - 1], s, n_slots))]
         if r + 1 < len(rounds):
-            up = index_of[(r + 1, nearest_slot(live_slots[r + 1], s, n_slots))]
+            nxt = rounds[r + 1]
+            above = (nxt.merged_into[s] if s in nxt.merged_into
+                     else nearest_slot(live_slots[r + 1], s, n_slots))
+            up = index_of[(r + 1, above)]
         neighbors.append([left, right, down, up])
 
     # Leaf tensor with gradients enabled, ready for the layout optimizer.
@@ -159,6 +163,7 @@ def build_bundle(chart, repeats=4, horizontal_gauge=8.0, vertical_gauge=12.0,
         "n_rounds": len(rounds),
         "n_chart_rounds": chart.height,
         "crown_start_round": first_dec,
+        "shaping_row": chart.shaping_row,   # 1-based sheet row, or None
         "positions": [[round(v, 5) for v in p] for p in pos.detach().tolist()],
         **meta,
     }
@@ -170,7 +175,7 @@ def describe(bundle):
     return (f"{bundle['name']}: {bundle['n_stitches']} stitches over "
             f"{bundle['n_rounds']} rounds ({counts[0]} -> {counts[-1]}), "
             f"{sum(bundle['increase_flag'])} cast-ons, "
-            f"{sum(bundle['decrease_flag'])} k2togs, crown starts round "
+            f"{sum(bundle['decrease_flag'])} decreases, crown starts round "
             f"{bundle['crown_start_round']}, {n_synth} synthesized rounds")
 
 

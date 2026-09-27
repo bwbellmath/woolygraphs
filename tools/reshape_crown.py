@@ -122,7 +122,7 @@ def reshape(chart, repeats, hg, vg, centre, spine, equator=None):
         if newly:
             events.append((r, len(live), sorted(s + 1 for s in newly)))
 
-    return Chart(rows, name=chart.name), equator, widths, radius, events
+    return Chart(rows, name=chart.name, meta=chart.meta), equator, widths, radius, events
 
 
 def main():

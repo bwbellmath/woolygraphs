@@ -9,9 +9,11 @@ edit recompiles the hat, so the sheet and the hat are always 1-1.
 
 ### Requirements
 
-- Python 3.12 (`python3.12` on your PATH)
-- `make`, `curl`
+- `make`, `curl`, `bash`
+- conda (Miniforge/Miniconda/Anaconda). If none is on your PATH, `make`
+  installs Miniforge into `~/miniforge3` for you.
 - a modern browser with WebGL
+- `pdflatex` (TeX Live), only for `make doc`
 
 ### Run
 
@@ -19,8 +21,12 @@ edit recompiles the hat, so the sheet and the hat are always 1-1.
 make small_cubes
 ```
 
-The first run creates `.venv/` (torch, numpy, openpyxl, pytest) and downloads
-three.js into `web/lib/`; both are cached. It then starts the editor server
+The first run creates the `woolygraphs` conda environment from
+`environment.yml` (Python 3.12, CPU PyTorch, numpy, openpyxl, pytest, ...)
+and downloads three.js into `web/lib/`; both are cached, and the environment
+is updated automatically whenever `environment.yml` changes. Use
+`conda activate woolygraphs` to work in it directly, `make env` to only
+build it, and `make clean-env` to delete it. It then starts the editor server
 for `patterns/small_cubes.csv` and opens http://localhost:8765/ in your
 browser. Stop the server with Ctrl-C.
 
@@ -42,6 +48,8 @@ Other targets:
 | `make charts`       | re-extract `small_cubes.csv` and `alt_cubes.csv` from the workbook |
 | `make layouts`      | write a layout JSON for every chart in `patterns/`               |
 | `make clean`        | remove the generated layout JSON                                 |
+| `make env`          | create/update the `woolygraphs` conda environment                |
+| `make clean-env`    | delete the conda environment                                     |
 
 Variables can be overridden on the command line, e.g.
 
@@ -116,8 +124,12 @@ one cell per stitch slot of a single repeat. A blank cell means no stitch;
 otherwise the cell is `<color>[-<op>...]`:
 
 - `f` foreground colour, `b` background colour (pickers in the toolbar)
-- ops such as `k2tog`, `ssk` (decrease), `co`, `kfb`, `m1` (increase);
-  e.g. `f-k2tog`, `b-co`
+- ops such as `k2tog`, `ssk` (decrease), `k3tog` (centred double
+  decrease), `co`, `kfb`, `m1` (increase); e.g. `f-k2tog`, `b-co`
+- a k3tog goes on the middle stitch of the three and the cells either side
+  of it are left blank on that round: `f,,f-k3tog,,f`. Both blanked stitches
+  are worked into it, so it sits directly over the middle one. A k2tog
+  absorbs the one blank beside it.
 
 The number of repeats knit around the hat is set in the toolbar, not in the
 sheet. See `HAT_EDITOR_PLAN.md` for the architecture.

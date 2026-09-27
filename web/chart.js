@@ -196,20 +196,33 @@ export class ChartGrid {
     if (changed) this.#commit(before);
   }
 
-  // Paste a TSV/CSV block with its top-left at the current cell. Rows in
-  // the clipboard run top-to-bottom on screen, i.e. decreasing round.
+  // Paste a TSV/CSV block with its top-left (on screen) at the selection's
+  // top-left. Rows in the clipboard run top-to-bottom on screen, i.e.
+  // decreasing round. As in Google Sheets, when the selection is a whole
+  // multiple of the block in both directions (e.g. one copied cell over a
+  // region) the block is repeated to fill the selection.
   pasteBlock(text) {
     if (this.readOnly || !this.cur) return;
     const lines = text.replace(/\r/g, "").split("\n");
     if (lines.length && lines.at(-1) === "") lines.pop();
+    if (!lines.length) return;
+    const block = lines.map((line) => (line.includes("\t") ? line.split("\t") : line.split(",")));
+    const bh = block.length, bw = Math.max(...block.map((row) => row.length));
+    const a = this.anchor ?? this.cur;
+    const top = Math.max(a.r, this.cur.r), left = Math.min(a.c, this.cur.c);
+    const sh = Math.abs(a.r - this.cur.r) + 1, sw = Math.abs(a.c - this.cur.c) + 1;
+    const tile = sh % bh === 0 && sw % bw === 0;
+    const h = tile ? sh : bh, w = tile ? sw : bw;
     const before = this.getData();
     let changed = false;
-    lines.forEach((line, i) => {
-      const vals = line.includes("\t") ? line.split("\t") : line.split(",");
-      vals.forEach((v, j) => {
-        changed = this.#set(this.cur.r - i, this.cur.c + j, v) || changed;
-      });
-    });
+    for (let i = 0; i < h; i++) {
+      for (let j = 0; j < w; j++) {
+        const v = block[i % bh][j % bw];
+        if (v === undefined) continue; // short row in a ragged block
+        changed = this.#set(top - i, left + j, v) || changed;
+      }
+    }
+    this.#paintSelection();
     if (changed) this.#commit(before);
   }
 
@@ -408,5 +421,37 @@ export class ChartGrid {
       const text = e.clipboardData?.getData("text/plain");
       if (text) { e.preventDefault(); this.pasteBlock(text); }
     });
+  }
+}
+
+// Thin read-only sheet beside the chart (shaping assistant: I / S / C).
+// Rows line up with the chart's rows -- same header row, same row height,
+// crown at the top -- and the caller keeps scrollTop in step.
+export class SideSheet {
+  constructor(container) {
+    this.el = document.createElement("div");
+    this.el.className = "grid sidegrid";
+    container.appendChild(this.el);
+  }
+
+  // headers: [{name, title, width?}]; rows: {r: [{text, cls, title} | null]}
+  set(headers, rows, height) {
+    this.el.style.gridTemplateColumns = headers.map((h) => h.width ?? "var(--cw)").join(" ");
+    const frag = document.createDocumentFragment();
+    for (const h of headers) {
+      frag.appendChild(Object.assign(document.createElement("div"),
+        { className: "sh", textContent: h.name, title: h.title ?? "" }));
+    }
+    for (let r = height - 1; r >= 0; r--) {
+      headers.forEach((_, i) => {
+        const v = rows[r]?.[i];
+        frag.appendChild(Object.assign(document.createElement("div"), {
+          className: "sc" + (v?.cls ? " " + v.cls : ""),
+          textContent: v?.text ?? "",
+          title: v?.title ?? `round ${r + 1}`,
+        }));
+      });
+    }
+    this.el.replaceChildren(frag);
   }
 }

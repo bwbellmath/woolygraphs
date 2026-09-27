@@ -122,3 +122,76 @@ def test_optimizer_holds_anchor():
     after = opt.pos.detach()
     assert (after[:n0] == before[:n0]).all()
     assert (after[n0:] != before[n0:]).any()
+
+
+def test_k3tog_is_centred_on_its_middle_parent():
+    # Slots 1-3 are worked together as a k3tog sitting in slot 2.
+    rows = [["f", "b", "f", "b", "f"],
+            ["f", "", "b-k3tog", "", "f"]]
+    ch = Chart(rows)
+    rd = ch.rounds()[1]
+    assert rd.newly_dead == [1, 3]
+    assert rd.merged_into == {1: 2, 3: 2}
+    assert rd.cells[2].consumes == 2
+    b = build_bundle(ch, repeats=1)
+    # Round 0 is stitches 0-4, round 1 is 5 (slot 0), 6 (k3tog), 7 (slot 4).
+    parents = sorted(e[0] for e in b["column_edges"] if e[1] == 6)
+    assert parents == [1, 2, 3]
+    assert b["neighbors"][2][3] == 6      # centre goes straight up
+    assert b["neighbors"][1][3] == 6      # left and right lean in
+    assert b["neighbors"][3][3] == 6
+    assert b["neighbors"][6][2] == 2      # k3tog hangs over its centre
+    assert b["stitch_counts"] == [5, 3]
+
+
+def test_k3tog_claims_both_sides_even_on_a_tie():
+    # Nearest-live would send slot 1 to slot 0 (ties go to the lower
+    # slot); the k3tog in slot 2 must take it.
+    rows = [["f"] * 6,
+            ["f", "", "f-k3tog", "", "f", "f"]]
+    rd = Chart(rows).rounds()[1]
+    assert rd.merged_into == {1: 2, 3: 2}
+
+
+def test_k2tog_takes_the_adjacent_dead_slot():
+    rows = [["f"] * 4,
+            ["f", "", "f", "f-k2tog"]]
+    rd = Chart(rows).rounds()[1]
+    # The k2tog in slot 3 is cut off from slot 1 by the live stitch in
+    # slot 2, so the dead slot falls back to its nearest stitch.
+    assert rd.merged_into == {1: 0}
+    rows = [["f"] * 4,
+            ["f", "", "f-k2tog", "f"]]
+    assert Chart(rows).rounds()[1].merged_into == {1: 2}
+
+
+def test_k3tog_across_repeat_boundary():
+    # The k3tog in slot 0 takes the last slot of the previous repeat.
+    rows = [["f"] * 4,
+            ["f-k3tog", "", "f", ""]]
+    rd = Chart(rows).rounds(repeats=2)[1]
+    assert rd.merged_into == {1: 0, 3: 4, 5: 4, 7: 0}
+
+
+def test_shaping_row_round_trips_through_csv(tmp_path):
+    ch = Chart([["f", "b"], ["f", "b"], ["f", ""]], name="x")
+    assert ch.shaping_row is None
+    ch.shaping_row = 2
+    path = tmp_path / "x.csv"
+    ch.write_csv(path)
+    assert path.read_text().splitlines()[0] == "# shaping_row: 2"
+    back = Chart.read_csv(path)
+    assert back.shaping_row == 2
+    assert back.rows == ch.rows          # the meta line is not a round
+    assert back.to_json()["shaping_row"] == 2
+    assert build_bundle(back, repeats=1)["shaping_row"] == 2
+    ch.shaping_row = None
+    ch.write_csv(path)
+    assert not path.read_text().startswith("#")
+
+
+def test_shaping_row_out_of_range_is_ignored():
+    ch = Chart.from_csv_text("# shaping_row: 9\nf,b\nf,b\n")
+    assert ch.height == 2
+    assert ch.shaping_row is None
+    assert ch.meta == {"shaping_row": "9"}   # kept, just not applied

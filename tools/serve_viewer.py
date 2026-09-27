@@ -9,7 +9,11 @@ smoothing job the viewer can start, watch, and stop.
   GET  /api/chart     {"cells", "width", "height", "name", "repeats",
                        "horizontal_gauge", "vertical_gauge", "path",
                        "dirty"}
-  POST /api/chart     {"cells": [[...]], "repeats"?: int}
+  POST /api/chart     {"cells": [[...]], "repeats"?: int,
+                       "shaping_row"?: int (1-based; null clears it),
+                       "horizontal_gauge"?: st/in, "vertical_gauge"?: rnd/in}
+      Repeats and gauge are stored on the chart (``# key: value`` lines
+      in the saved CSV) and reapplied when it is loaded again.
       Replace the chart and recompile; return the new bundle (400 with
       {"error"} if it cannot be compiled). If only cell text changed
       (same stitch counts and neighbour graph) the current positions
@@ -47,10 +51,9 @@ chart edit starts a fresh one.
 """
 
 import argparse
-import csv
-import io
 import json
 import os
+import re
 import sys
 import threading
 
@@ -82,6 +85,8 @@ class EditorSession:
         self.repeats = repeats
         self.hg = horizontal_gauge
         self.vg = vertical_gauge
+        # Command-line values: what a chart without its own settings gets.
+        self.defaults = (repeats, horizontal_gauge, vertical_gauge)
         self.lr = lr
         self.extend_crown = extend_crown
         self.dirty = False
@@ -169,6 +174,26 @@ class EditorSession:
             bundle["layout_source"] = f"{name}.json"
         return chart, bundle, repeats
 
+    def _csv_settings(self, chart):
+        """Repeats and gauge a CSV chart carries in its meta lines, else
+        the command-line values. Sets the session gauge; returns repeats."""
+        def num(key, cast, default):
+            try:
+                v = cast(chart.meta[key])
+                return v if v > 0 else default
+            except (KeyError, TypeError, ValueError):
+                return default
+        repeats, hg, vg = self.defaults
+        self.hg = num("horizontal_gauge", float, hg)
+        self.vg = num("vertical_gauge", float, vg)
+        return num("repeats", int, repeats)
+
+    def _stamp_settings(self, chart, repeats):
+        """Record repeats and gauge on the chart so they save with it."""
+        chart.meta["repeats"] = str(repeats)
+        chart.meta["horizontal_gauge"] = f"{self.hg:g}"
+        chart.meta["vertical_gauge"] = f"{self.vg:g}"
+
     def load_file(self, path):
         path = self.resolve(path)
         name = path.stem
@@ -178,7 +203,7 @@ class EditorSession:
             chart, bundle, repeats = self._from_json(data, name)
         else:
             chart = Chart.read_csv(path, name=name)
-            repeats = self.repeats
+            repeats = self._csv_settings(chart)
             bundle = build_bundle(chart, repeats, self.hg, self.vg,
                                   self.extend_crown)
             self._apply_saved_layout(bundle, path)
@@ -189,10 +214,8 @@ class EditorSession:
         if data is not None:
             chart, bundle, repeats = self._from_json(data, stem)
         else:
-            rows = [[c.strip() for c in row]
-                    for row in csv.reader(io.StringIO(text or ""))]
-            chart = Chart(strip_trailing_blank(rows), name=stem)
-            repeats = self.repeats
+            chart = Chart.from_csv_text(text or "", name=stem)
+            repeats = self._csv_settings(chart)
             bundle = build_bundle(chart, repeats, self.hg, self.vg,
                                   self.extend_crown)
         # Imported files live in patterns/ once saved.
@@ -240,14 +263,22 @@ class EditorSession:
                     f"optimizer, {len(self.opt.history)} iterations")
         return payload
 
-    def set_chart(self, cells, repeats=None):
+    def set_chart(self, cells, repeats=None, shaping_row=None,
+                  horizontal_gauge=None, vertical_gauge=None):
         cells = [[str(c).strip() for c in row] for row in cells]
-        chart = Chart(strip_trailing_blank(cells), name=self.chart.name)
-        if repeats is not None:
-            repeats = max(1, min(int(repeats), 64))
+        chart = Chart(strip_trailing_blank(cells), name=self.chart.name,
+                      meta=self.chart.meta)
+        chart.shaping_row = shaping_row
+        repeats = (max(1, min(int(repeats), 64)) if repeats is not None
+                   else self.repeats)
+        hg = float(horizontal_gauge) if horizontal_gauge else self.hg
+        vg = float(vertical_gauge) if vertical_gauge else self.vg
+        if hg <= 0 or vg <= 0:
+            raise ValueError("gauge must be positive")
         # Compile before committing so a bad edit leaves the old state.
-        bundle = build_bundle(chart, repeats or self.repeats, self.hg, self.vg,
-                              self.extend_crown)
+        bundle = build_bundle(chart, repeats, hg, vg, self.extend_crown)
+        self.hg, self.vg = hg, vg
+        self._stamp_settings(chart, repeats)
         if self.bundle is not None and self.same_structure(self.bundle, bundle):
             # Only text (colour / ops) changed: keep the layout and the
             # optimizer, just swap the per-stitch metadata.
@@ -259,7 +290,7 @@ class EditorSession:
             self.dirty = True
             self.version += 1
             return
-        self._install(chart, bundle, repeats or self.repeats, dirty=True)
+        self._install(chart, bundle, repeats, dirty=True)
 
     def save_layout(self):
         target = self.layout_path()
@@ -357,6 +388,41 @@ def make_handler(web_dir, session):
             if not self.path.startswith(("/lib/", "/favicon", "/api/state")):
                 super().log_message(fmt, *a)
 
+        def end_headers(self):
+            # Make the browser revalidate the page and its JS modules on
+            # every load (a 304 when unchanged), so edits to web/ show up
+            # on a plain reload instead of running a cached copy.
+            if not self.path.startswith("/api/"):
+                self.send_header("Cache-Control", "no-cache")
+            super().end_headers()
+
+        # "./app.js" -> "./app.js?v=<mtime>" in the page and its modules,
+        # so a changed module gets a new URL and a browser can never pair
+        # a fresh app.js with a stale cached chart.js.
+        MODULE_REF = re.compile(r"""(["'])\./([\w./-]+\.js)\1""")
+
+        def send_versioned(self, path):
+            f = web_dir / (path.lstrip("/") or "index.html")
+            if f.is_dir():
+                f = f / "index.html"
+            if not f.is_file() or web_dir.resolve() not in f.resolve().parents:
+                return super().do_GET()
+
+            def stamp(m):
+                dep = f.parent / m.group(2)
+                if not dep.is_file():
+                    return m.group(0)
+                q = m.group(1)
+                return f"{q}./{m.group(2)}?v={int(dep.stat().st_mtime)}{q}"
+
+            body = self.MODULE_REF.sub(stamp, f.read_text()).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8"
+                             if f.suffix == ".html" else "text/javascript")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def send_json(self, payload, status=200):
             body = json.dumps(payload).encode()
             self.send_response(status)
@@ -369,6 +435,8 @@ def make_handler(web_dir, session):
         def do_GET(self):
             url = urlparse(self.path)
             if not url.path.startswith("/api/"):
+                if url.path == "/" or url.path.endswith((".html", ".js")):
+                    return self.send_versioned(url.path)
                 return super().do_GET()
             with session.lock:
                 if url.path == "/api/state":
@@ -395,7 +463,10 @@ def make_handler(web_dir, session):
                 with session.lock:
                     try:
                         session.set_chart(req.get("cells") or [],
-                                          req.get("repeats"))
+                                          req.get("repeats"),
+                                          req.get("shaping_row"),
+                                          req.get("horizontal_gauge"),
+                                          req.get("vertical_gauge"))
                     except (ValueError, IndexError, TypeError) as e:
                         return self.send_json({"error": str(e)}, 400)
                     return self.send_json(session.bundle_payload())
