@@ -79,6 +79,19 @@ def test_legacy_conversion():
     assert ch.rows[3] == ["f", "", "", "f-k2tog"]
 
 
+def test_from_legacy_double_decrease_is_cdd():
+    # Both killed slots have slot 1 as their nearest survivor.
+    rows = [list("WBW"), list("DBD")]
+    assert from_legacy(rows).rows[1] == ["", "f-cdd", ""]
+
+
+def test_purl_is_structurally_a_knit():
+    knit = build_bundle(Chart([["f", "b"], ["f", "b"]]), repeats=2)
+    purl = build_bundle(Chart([["f", "b-p"], ["f-p", "b"]]), repeats=2)
+    assert purl["column_edges"] == knit["column_edges"]
+    assert purl["stitch_counts"] == knit["stitch_counts"]
+
+
 def test_small_cubes_reference_hat():
     ch = Chart.read_csv(CHART_CSV)
     assert not ch.errors()
@@ -98,18 +111,21 @@ def test_small_cubes_reference_hat():
 
 
 def test_cast_on_ring_is_gauge_exact_circle():
+    # Seen from above the cast-on round is a gauge-exact circle; it rises
+    # along the helix, so its last stitch sits just below round 1's first.
     ch = Chart([["f"] * 10] * 3)
-    hg = 8.0
-    b = build_bundle(ch, repeats=3, horizontal_gauge=hg, vertical_gauge=12.0)
+    hg, vg = 8.0, 12.0
+    b = build_bundle(ch, repeats=3, horizontal_gauge=hg, vertical_gauge=vg)
     p = b["positions"]
     n0 = b["stitch_counts"][0]
-    assert all(p[i][2] == 0.0 for i in range(n0))
     for i in range(n0):
-        chord = math.dist(p[i], p[(i + 1) % n0])
+        chord = math.dist(p[i][:2], p[(i + 1) % n0][:2])
         assert chord == pytest.approx(1.0 / hg, abs=2e-4)
     assert ring_radius(n0, hg) == pytest.approx(
         (1 / hg) / (2 * math.sin(math.pi / n0)))
-    assert p[n0][2] > 0.0  # round 1 starts the helix
+    assert p[0][2] == 0.0
+    assert p[n0][2] == pytest.approx(1 / vg, abs=1e-4)   # one round up at the seam
+    assert p[n0 - 1][2] == pytest.approx((1 - 1 / n0) / vg, abs=1e-4)
 
 
 def test_optimizer_holds_anchor():
@@ -124,23 +140,24 @@ def test_optimizer_holds_anchor():
     assert (after[n0:] != before[n0:]).any()
 
 
-def test_k3tog_is_centred_on_its_middle_parent():
-    # Slots 1-3 are worked together as a k3tog sitting in slot 2.
+@pytest.mark.parametrize("op", ["cdd", "k3tog"])   # k3tog: older charts
+def test_cdd_is_centred_on_its_middle_parent(op):
+    # Slots 1-3 are worked together as a cdd sitting in slot 2.
     rows = [["f", "b", "f", "b", "f"],
-            ["f", "", "b-k3tog", "", "f"]]
+            ["f", "", f"b-{op}", "", "f"]]
     ch = Chart(rows)
     rd = ch.rounds()[1]
     assert rd.newly_dead == [1, 3]
     assert rd.merged_into == {1: 2, 3: 2}
     assert rd.cells[2].consumes == 2
     b = build_bundle(ch, repeats=1)
-    # Round 0 is stitches 0-4, round 1 is 5 (slot 0), 6 (k3tog), 7 (slot 4).
+    # Round 0 is stitches 0-4, round 1 is 5 (slot 0), 6 (cdd), 7 (slot 4).
     parents = sorted(e[0] for e in b["column_edges"] if e[1] == 6)
     assert parents == [1, 2, 3]
     assert b["neighbors"][2][3] == 6      # centre goes straight up
     assert b["neighbors"][1][3] == 6      # left and right lean in
     assert b["neighbors"][3][3] == 6
-    assert b["neighbors"][6][2] == 2      # k3tog hangs over its centre
+    assert b["neighbors"][6][2] == 2      # cdd hangs over its centre
     assert b["stitch_counts"] == [5, 3]
 
 
@@ -195,3 +212,54 @@ def test_shaping_row_out_of_range_is_ignored():
     assert ch.height == 2
     assert ch.shaping_row is None
     assert ch.meta == {"shaping_row": "9"}   # kept, just not applied
+
+
+def test_moving_gap_is_not_shaping():
+    # Same count every round; the gap moves from slot 2 to slot 1. Read
+    # as a left collapse, stitch k sits on stitch k: no cast-on, no
+    # decrease, every stitch has exactly one parent.
+    rows = [["f", "b", "", "f"],
+            ["f", "", "b", "f"]]
+    rd = Chart(rows).rounds()[1]
+    assert rd.newly_dead == [] and rd.newly_cast == [] and rd.merged_into == {}
+    assert rd.below == {0: 0, 2: 1, 3: 3}
+    b = build_bundle(Chart(rows), repeats=2)
+    assert not any(b["increase_flag"])
+    parents = {}
+    for lo, hi in b["column_edges"]:
+        parents.setdefault(hi, []).append(lo)
+    assert sorted(parents) == list(range(6, 12))
+    assert all(len(p) == 1 for p in parents.values())
+    # stitch 7 (round 1, slot 2) on stitch 1 (round 0, slot 1)
+    assert parents[7] == [1] and b["neighbors"][1][3] == 7
+
+
+def test_gap_wrapping_past_the_repeat_edge_does_not_twist_the_round():
+    rows = [["f", "f", "f", ""],
+            ["", "f", "f", "f"]]
+    rd = Chart(rows).rounds(repeats=3)[1]
+    # The gap moves from the last column to the first column of the next
+    # repeat: slots 1, 2 stay put and only the stitch beside the gap
+    # shifts over (a plain left collapse would shift every stitch).
+    assert rd.below == {1: 1, 2: 2, 3: 4, 5: 5, 6: 6, 7: 8,
+                        9: 9, 10: 10, 11: 0}
+
+
+def test_cast_on_after_moving_gaps_keeps_its_neighbours():
+    rows = [["f", "", "f", "f"],
+            ["f", "f", "", "f"],
+            ["f", "f", "f-co", "f"]]
+    rds = Chart(rows).rounds()
+    assert rds[1].below == {0: 0, 1: 2, 3: 3}
+    assert rds[2].newly_cast == [2]
+    assert rds[2].below == {0: 0, 1: 1, 3: 3}
+
+
+def test_cast_on_round_is_the_first_turn_of_the_helix():
+    vg = 13.0
+    b = build_bundle(Chart([["f"] * 10] * 3), repeats=1, vertical_gauge=vg)
+    z = [p[2] for p in b["positions"]]
+    rise = 1 / (vg * 10)                       # one stitch along the helix
+    assert z[0] == 0 and all(z[i] < z[i + 1] for i in range(len(z) - 1))
+    assert all(abs(z[i + 1] - z[i] - rise) < 1e-4 for i in range(len(z) - 1))
+    assert all(b["anchor_flag"][:10]) and not any(b["anchor_flag"][10:])

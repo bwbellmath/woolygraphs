@@ -11,14 +11,19 @@ smoothing job the viewer can start, watch, and stop.
                        "dirty"}
   POST /api/chart     {"cells": [[...]], "repeats"?: int,
                        "shaping_row"?: int (1-based; null clears it),
+                       "vertical_repeat"?: {"start", "end", "count"} (1-based
+                           sheet rows, inclusive; null clears it),
                        "horizontal_gauge"?: st/in, "vertical_gauge"?: rnd/in}
       Repeats and gauge are stored on the chart (``# key: value`` lines
       in the saved CSV) and reapplied when it is loaded again.
       Replace the chart and recompile; return the new bundle (400 with
       {"error"} if it cannot be compiled). If only cell text changed
       (same stitch counts and neighbour graph) the current positions
-      and optimizer state are kept; a structural change restarts the
-      layout.
+      and optimizer state are kept. A structural change (stitches added
+      or removed, rounds / columns inserted or deleted) patches the
+      layout locally (layout_patch.py): surviving stitches keep their
+      positions and new ones are placed between their neighbours. Only a
+      change of repeats or gauge restarts from the helix.
   POST /api/layout/save
       Write the current positions (plus the chart) to the chart's
       layout sidecar, patterns/<name>.layout.json (or back into the
@@ -26,6 +31,22 @@ smoothing job the viewer can start, watch, and stop.
       sidecar up as its default layout while it still fits the chart.
   POST /api/chart/save  {"path"?: "patterns/x.csv"}
       Write the in-memory chart to its CSV (or a new path under the repo).
+  POST /api/save_version
+      Save the chart and the current layout under the next version of
+      the chart's name (the last number in it incremented, or "_1"
+      appended), e.g. patterns/hat_3.csv + patterns/hat_3.layout.json
+      -> patterns/hat_4.csv + patterns/hat_4.layout.json.
+  POST /api/export_tex  {"cells", "style": "words"|"symbols"|"color",
+                         "repeats", "horizontal_gauge", "vertical_gauge",
+                         "shaping_row", "fg", "bg", "name"}
+      {"tex": "..."} the chart as a one-page LaTeX document
+      (chart_tex.py); does not touch the session.
+  POST /api/export_edges  {"name", "images": {"x.png": data URL, ...},
+                           "stats", "mode", "log", "strain_scale", "gauge",
+                           "repeats", "n_stitches", "clipped"}
+      application/zip: <name>_edges/ with the Edges tab as a LaTeX
+      section (edges_tex.py), adding the optimizer's iterations, weights
+      and last losses; does not touch the session.
   GET  /api/files     {"files": [{"path", "kind"}]} charts (patterns/*.csv,
                       *.json) and layouts (web/data/*.json) under the repo
   POST /api/load      {"path": "..."} load a chart CSV or a layout JSON
@@ -63,15 +84,43 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from chart import Chart, from_bundle, strip_trailing_blank  # noqa: E402
+from chart import DEFAULT_HORIZONTAL_GAUGE, DEFAULT_VERTICAL_GAUGE, Chart, from_bundle, strip_trailing_blank  # noqa: E402
+from chart_tex import chart_to_tex  # noqa: E402
+from edges_tex import build_zip as edges_zip  # noqa: E402
 from hat_optimizer import HatOptimizer  # noqa: E402
+from layout_patch import align, patch_positions  # noqa: E402
 from spiral_layout import build_bundle, describe  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 
 
+KEEP = object()   # set_chart: leave the chart's vertical repeat as it is
+
+
 def snapshot(opt):
     return [[round(v, 5) for v in p] for p in opt.pos.detach().tolist()]
+
+
+def base_name(stem):
+    """Chart name without the ".layout" / "_layout" tails that saving a
+    layout JSON as a chart (and exporting it again) piles up."""
+    while True:
+        trimmed = re.sub(r"[._]layout$", "", stem.rstrip(" "))
+        if trimmed == stem or not trimmed:
+            return stem
+        stem = trimmed
+
+
+def next_version(stem):
+    """hat_3 -> hat_4, v2_hat -> v3_hat (the last number), hat -> hat_1."""
+    stem = base_name(stem)
+    m = None
+    for m in re.finditer(r"\d+", stem):
+        pass
+    if m is None:
+        return f"{stem}_1"
+    n = str(int(m.group()) + 1).zfill(len(m.group()))
+    return stem[:m.start()] + n + stem[m.end():]
 
 
 class EditorSession:
@@ -264,11 +313,14 @@ class EditorSession:
         return payload
 
     def set_chart(self, cells, repeats=None, shaping_row=None,
-                  horizontal_gauge=None, vertical_gauge=None):
+                  horizontal_gauge=None, vertical_gauge=None,
+                  vertical_repeat=KEEP):
         cells = [[str(c).strip() for c in row] for row in cells]
         chart = Chart(strip_trailing_blank(cells), name=self.chart.name,
                       meta=self.chart.meta)
         chart.shaping_row = shaping_row
+        if vertical_repeat is not KEEP:
+            chart.vertical_repeat = vertical_repeat
         repeats = (max(1, min(int(repeats), 64)) if repeats is not None
                    else self.repeats)
         hg = float(horizontal_gauge) if horizontal_gauge else self.hg
@@ -290,7 +342,57 @@ class EditorSession:
             self.dirty = True
             self.version += 1
             return
+        if self.bundle is not None and self._patch_layout(chart, bundle):
+            return
         self._install(chart, bundle, repeats, dirty=True)
+
+    def _patch_layout(self, chart, bundle):
+        """Install a structurally changed chart keeping the layout: the
+        current positions and the Reset baseline are both carried over
+        with a minimal local change. False if they cannot be (repeats or
+        gauge changed, or nothing in common)."""
+        old = self.bundle
+        if (old["horizontal_gauge"] != bundle["horizontal_gauge"]
+                or old["vertical_gauge"] != bundle["vertical_gauge"]):
+            return False
+        if self._vertical_repeat_changed(self.chart, chart):
+            return False
+        # Match rounds as knit, so the copies of a vertical repeat line up.
+        args = (old, self.chart.expanded_rows())
+        new_rows = chart.expanded_rows()
+        current = patch_positions(*args, snapshot(self.opt), bundle, new_rows)
+        base = patch_positions(*args, self.opt.pos0.tolist(), bundle,
+                               new_rows)
+        if current is None or base is None:
+            return False
+        source = (f"optimizer, {len(self.opt.history)} iterations"
+                  if self.opt.history
+                  else old.get("layout_source", "initial helix"))
+        if not source.endswith(" + chart edits"):
+            source += " + chart edits"
+        bundle["positions"] = base
+        bundle["layout_source"] = source
+        self._install(chart, bundle, bundle["repeats"], dirty=True)
+        with torch.no_grad():
+            self.opt.pos.copy_(torch.tensor(current, dtype=self.opt.pos.dtype))
+        self.snapshot = current
+        return True
+
+    @staticmethod
+    def _vertical_repeat_changed(old, new):
+        """True when the vertical repeat changed in a way that reshapes
+        the whole hat (a new count, or a region moved other than by rows
+        inserted / deleted around it), which deserves a fresh layout
+        like any repeat change."""
+        a, b = old.vertical_repeat, new.vertical_repeat
+        count = a[2] if a else 1
+        if count != (b[2] if b else 1):
+            return True
+        if count == 1:
+            return False   # worked once: the region changes nothing
+        rmap = align([tuple(r) for r in old.rows], [tuple(r) for r in new.rows])
+        return (rmap.get(a[0] - 1) != b[0] - 1
+                or rmap.get(a[1] - 1) != b[1] - 1)
 
     def save_layout(self):
         target = self.layout_path()
@@ -301,6 +403,22 @@ class EditorSession:
         with open(target, "w") as f:
             json.dump({**self.bundle, "chart": self.chart_payload()}, f)
         return self.bundle["layout_source"]
+
+    def save_version(self):
+        """Chart + layout under the next free version of the name."""
+        folder = self.chart_path.parent
+        if folder.name != "patterns" or REPO not in folder.parents:
+            folder = REPO / "patterns"
+        stem = self.chart.name
+        while True:
+            stem = next_version(stem)
+            csv_path = folder / f"{stem}.csv"
+            if not (csv_path.exists()
+                    or self.layout_path(csv_path).exists()):
+                break
+        self.save(csv_path)
+        self.bundle["name"] = stem
+        return self.save_layout()
 
     def save(self, path=None):
         if path:
@@ -360,7 +478,8 @@ class EditorSession:
         iterations = max(1, min(int(req.get("iterations", 1000)), 1_000_000))
         update_every = max(1, min(int(req.get("update_every", 500)),
                                   iterations))
-        self.opt.set_params(lr=req.get("lr"), weights=req.get("weights"))
+        self.opt.set_params(lr=req.get("lr"), weights=req.get("weights"),
+                            scheme=req.get("scheme"))
         self.running = True
         self.stop = False
         self.error = None
@@ -432,6 +551,16 @@ def make_handler(web_dir, session):
             self.end_headers()
             self.wfile.write(body)
 
+        def send_bytes(self, body, content_type, filename):
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Disposition",
+                             f'attachment; filename="{filename}"')
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self):
             url = urlparse(self.path)
             if not url.path.startswith("/api/"):
@@ -466,7 +595,8 @@ def make_handler(web_dir, session):
                                           req.get("repeats"),
                                           req.get("shaping_row"),
                                           req.get("horizontal_gauge"),
-                                          req.get("vertical_gauge"))
+                                          req.get("vertical_gauge"),
+                                          req.get("vertical_repeat", KEEP))
                     except (ValueError, IndexError, TypeError) as e:
                         return self.send_json({"error": str(e)}, 400)
                     return self.send_json(session.bundle_payload())
@@ -478,6 +608,54 @@ def make_handler(web_dir, session):
                     except (ValueError, OSError) as e:
                         return self.send_json({"error": str(e)}, 400)
                     return self.send_json(session.chart_payload())
+
+            if self.path == "/api/export_tex":
+                try:
+                    cells = [[str(c).strip() for c in row]
+                             for row in req.get("cells") or []]
+                    chart = Chart(strip_trailing_blank(cells),
+                                  name=req.get("name") or "chart")
+                    chart.shaping_row = req.get("shaping_row")
+                    chart.vertical_repeat = req.get("vertical_repeat")
+                    tex = chart_to_tex(
+                        chart, req.get("style", "color"),
+                        repeats=req.get("repeats"),
+                        horizontal_gauge=float(req.get("horizontal_gauge")
+                                               or DEFAULT_HORIZONTAL_GAUGE),
+                        vertical_gauge=float(req.get("vertical_gauge")
+                                             or DEFAULT_VERTICAL_GAUGE),
+                        fg=req.get("fg") or "#2f76c4",
+                        bg=req.get("bg") or "#e9e5da")
+                except (ValueError, TypeError) as e:
+                    return self.send_json({"error": str(e)}, 400)
+                return self.send_json({"tex": tex})
+
+            if self.path == "/api/export_edges":
+                with session.lock:
+                    opt = session.opt
+                    req["optimizer"] = {
+                        "iterations": len(opt.history) if opt else 0,
+                        "weights": dict(opt.weights) if opt else None,
+                        "scheme": opt.scheme if opt else None,
+                        "lr": opt.lr if opt else None,
+                        "last": opt.history[-1] if opt and opt.history else None,
+                    }
+                try:
+                    body = edges_zip(req)
+                except (ValueError, TypeError) as e:
+                    return self.send_json({"error": str(e)}, 400)
+                name = (req.get("name") or "hat").replace('"', "")
+                return self.send_bytes(body, "application/zip",
+                                       f"{name}_edges.zip")
+
+            if self.path == "/api/save_version":
+                with session.lock:
+                    try:
+                        src = session.save_version()
+                    except (ValueError, OSError) as e:
+                        return self.send_json({"error": str(e)}, 400)
+                    return self.send_json({**session.chart_payload(),
+                                           "layout_source": src})
 
             if self.path in ("/api/load", "/api/import"):
                 session.stop_job()
@@ -535,8 +713,8 @@ def main():
     ap.add_argument("--chart", default=str(REPO / "patterns/small_cubes.csv"),
                     help="chart CSV or layout JSON to open")
     ap.add_argument("--repeats", type=int, default=4)
-    ap.add_argument("--horizontal-gauge", type=float, default=8.0)
-    ap.add_argument("--vertical-gauge", type=float, default=12.0)
+    ap.add_argument("--horizontal-gauge", type=float, default=DEFAULT_HORIZONTAL_GAUGE)
+    ap.add_argument("--vertical-gauge", type=float, default=DEFAULT_VERTICAL_GAUGE)
     ap.add_argument("--extend-crown", action="store_true")
     ap.add_argument("--lr", type=float, default=1e-3)
     args = ap.parse_args()

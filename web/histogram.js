@@ -113,6 +113,17 @@ export function renderHistogram(svg, hist, { width = 640, height = 300, logY = t
     svg.appendChild(t);
   });
 
+  // --- legend (top right), so the plot reads on its own when exported ---
+  const shown = CLASSES.filter((_, s) => hist.counts[s].some((c) => c > 0));
+  shown.forEach((cls, k) => {
+    const ly = M.top + 8 + k * 14, lx = M.left + w - 92;
+    svg.appendChild(el("rect", { x: lx, y: ly - 7, width: 10, height: 10, rx: 2,
+      fill: cls.color, "fill-opacity": 0.35, stroke: cls.color, "stroke-width": 1.5 }));
+    const t = el("text", { x: lx + 15, y: ly + 2, fill: "#c3c2b7", "font-size": 10 });
+    t.textContent = cls.name;
+    svg.appendChild(t);
+  });
+
   // --- hover: crosshair + per-bin readout ---
   const hover = el("g", { visibility: "hidden" });
   const rule = el("line", { y1: M.top, y2: M.top + h, stroke: "#c3c2b7",
@@ -242,7 +253,7 @@ export function renderDeviation(svg, hist, { width = 640, height = 200,
   for (let i = 0; i <= 6; i++) {
     const v = hist.lo + ((hist.hi - hist.lo) / 6) * i;
     const t = el("text", { x: x(v), y: base + 14, fill: "#898781",
-      "font-size": 10, "text-anchor": "middle" });
+      "font-size": 10, "text-anchor": i === 6 ? "end" : "middle" });
     t.textContent = `${v >= 0 ? "+" : ""}${(v * 100).toFixed(0)}%`;
     svg.appendChild(t);
   }

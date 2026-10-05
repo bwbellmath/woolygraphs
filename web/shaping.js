@@ -5,7 +5,7 @@
 // that latitude.
 // guideCells outlines the two ends of that ideal width, centred in the
 // pattern repeat, so the author can see where the decrease line should
-// be while placing k2togs (or centred k3togs) wherever the motif allows.
+// be while placing k2togs (or centred cdds) wherever the motif allows.
 
 // The crown is a hemisphere whose equator is the shaping row. Its radius
 // is either fitted to the layout (in app.js) or that row's circumference
@@ -18,7 +18,9 @@ export const leafRounds = (p) => Math.round((Math.PI / 2) * p.radius * p.vg);
 // one: the round before its first decrease.
 export function defaultShapingRow(bundle, chart) {
   const H = chart?.cells?.length ?? bundle.n_chart_rounds;
-  return Math.max(1, Math.min(H, bundle.crown_start_round));
+  // crown_start_row: the sheet row of the first decrease round (equal to
+  // the round index unless a vertical repeat is expanded).
+  return Math.max(1, Math.min(H, bundle.crown_start_row ?? bundle.crown_start_round));
 }
 
 // Widest round of the chart as knit: {round, stitches, inches} around all
@@ -30,12 +32,12 @@ export function widestRound(perSlice, p) {
   return { round, stitches, inches: stitches / p.hg };
 }
 
-// Stitches one decrease removes: a k2tog takes 2 to 1, a k3tog 3 to 1.
-export const DECREASE_STEP = { k2tog: 1, k3tog: 2 };
+// Stitches one decrease removes: a k2tog or ssk takes 2 to 1, a cdd 3 to 1.
+export const DECREASE_STEP = { k2tog: 1, ssk: 1, cdd: 2, k3tog: 2 };
 
 // Per-round ideal slice widths from the equator up:
 // [{round, width, theta, decs}], decs = decreases this round per slice.
-// With k3tog every change is a multiple of 2, so the width keeps the
+// With cdd every change is a multiple of 2, so the width keeps the
 // equator width's parity and the outline narrows by one on each side.
 export function idealWidths(p, height) {
   const step = DECREASE_STEP[p.dec] ?? 1;

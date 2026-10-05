@@ -5,9 +5,16 @@
 // Rows are stored in knit order (round 0 first) but displayed as worn,
 // crown at the top and cast-on at the bottom.
 
+import { STITCHES, SYMBOLS, symbolSvg } from "./stitches.js";
+
 export const COLORS = ["b", "f"];
 export const DECREASE_OPS = new Set(["k2tog", "ssk", "k3tog", "cdd", "p2tog"]);
 export const INCREASE_OPS = new Set(["co", "kfb", "m1", "m1l", "m1r", "yo", "pfb"]);
+// Ops that say how a stitch is worked; a cell has at most one.
+export const CONSTRUCTION_OPS = new Set([
+  ...DECREASE_OPS, ...INCREASE_OPS,
+  ...STITCHES.map((s) => s.op).filter(Boolean),
+]);
 
 export function parseCell(text) {
   const parts = String(text ?? "").trim().toLowerCase().split("-").map((p) => p.trim());
@@ -18,6 +25,16 @@ export function parseCell(text) {
 }
 
 const key = (r, c) => `${r},${c}`;
+
+// A cell with its construction swapped for op (null = plain knit),
+// keeping its colour and any ops that are not a construction. Blank and
+// unparseable cells are returned unchanged.
+export function restitch(text, op) {
+  const p = parseCell(text);
+  if (!p || p.bad) return text;
+  const keep = p.ops.filter((o) => !CONSTRUCTION_OPS.has(o));
+  return [COLORS[p.color], ...(op ? [op] : []), ...keep].join("-");
+}
 
 export class ChartGrid {
   constructor(container, { onChange, onHover } = {}) {
@@ -32,6 +49,16 @@ export class ChartGrid {
     this.editing = null; // input element
     this.hl = null;
     this.equator = -1;
+    // Vertical repeat: {start, end} 1-based sheet rows (inclusive), worked
+    // vcount times; outlined on the sheet. Part of the undo history.
+    this.vrepeat = null;
+    this.vcount = 1;
+    this.symbols = false;
+    // Stitch brush: {op} while a stitch button is on; a click or drag
+    // swaps each cell's construction for op (null = knit), keeping its
+    // colour. One stroke is one undo step.
+    this.brush = null;
+    this.stroke = null; // {before, changed} while painting
     this.undoStack = [];
     this.redoStack = [];
     this.onHistory = () => {};
@@ -52,6 +79,72 @@ export class ChartGrid {
   }
 
   getData() { return this.cells.map((r) => [...r]); }
+
+  // Undo / redo state: the cells plus the vertical repeat region.
+  #snapshot() { return { cells: this.getData(), vrepeat: this.vrepeat && { ...this.vrepeat } }; }
+
+  // Set the region (on load; no history) and the count shown on it.
+  setVRepeat(region, count = this.vcount) {
+    this.vrepeat = region && region.start <= region.end ? { start: region.start, end: region.end } : null;
+    this.vcount = count;
+    this.#paintVRepeat();
+  }
+
+  setVCount(count) {
+    this.vcount = count;
+    this.#paintVRepeat();
+  }
+
+  // Round range [lo, hi] (0-based) of the selection, or null.
+  selectedRows() {
+    if (!this.cur) return null;
+    const a = this.anchor ?? this.cur;
+    return [Math.min(a.r, this.cur.r), Math.max(a.r, this.cur.r)];
+  }
+
+  // Make sheet rows lo..hi (0-based round indices) the repeat, or clear it.
+  setRepeatRegion(lo, hi) {
+    if (this.readOnly) return;
+    const before = this.#snapshot();
+    this.vrepeat = lo == null ? null : { start: Math.min(lo, hi) + 1, end: Math.max(lo, hi) + 1 };
+    this.#paintVRepeat();
+    this.#commit(before);
+  }
+
+  // White outline over the region's rows, all columns. An absolutely
+  // positioned grid child takes its grid area as containing block without
+  // taking part in auto-placement, so the cells flow as before.
+  #paintVRepeat() {
+    this.el.querySelector(".vrep")?.remove();
+    const v = this.vrepeat;
+    if (!v || v.end > this.height || !this.width) return;
+    const H = this.height;
+    const box = document.createElement("div");
+    box.className = "vrep";
+    box.style.gridRow = `${H - v.end + 2} / ${H - v.start + 3}`;
+    box.style.gridColumn = "2 / -1";
+    box.title = `vertical repeat: rounds ${v.start}–${v.end}, worked ${this.vcount}×`;
+    box.appendChild(Object.assign(document.createElement("span"), { textContent: `×${this.vcount}` }));
+    this.el.appendChild(box);
+  }
+
+  // Show ops as chart symbols (true) or as text.
+  setSymbols(on) {
+    if (this.editing) this.endEdit(true);
+    this.symbols = on;
+    for (const [k, d] of this.cellEls) { const [r, c] = k.split(",").map(Number); this.#paint(d, r, c); }
+    this.#paintSelection();
+  }
+
+  setBrush(stitch) {
+    if (this.editing) this.endEdit(true);
+    this.brush = stitch ?? null;
+    this.el.classList.toggle("brushing", !!this.brush);
+  }
+
+  #brushAt(r, c) {
+    return this.#set(r, c, restitch(this.cells[r][c], this.brush.op));
+  }
 
   setGuide(set) {
     for (const k of this.guide) this.cellEls.get(k)?.classList.remove("guide");
@@ -98,6 +191,7 @@ export class ChartGrid {
       }
     }
     this.el.appendChild(frag);
+    this.#paintVRepeat();
     this.#paintSelection();
   }
 
@@ -114,7 +208,16 @@ export class ChartGrid {
     }
     if (this.guide.has(key(r, c))) cls += " guide";
     d.className = cls;
-    d.textContent = label;
+    if (this.symbols && p && !p.bad) {
+      // Plain knit is an empty square; known ops draw, the rest stay text.
+      const drawn = p.ops.filter((o) => SYMBOLS[o]);
+      const rest = p.ops.filter((o) => !SYMBOLS[o]).join("-");
+      d.innerHTML = drawn.length ? symbolSvg(drawn) : "";
+      if (rest) d.append(Object.assign(document.createElement("span"), { textContent: rest }));
+      if (drawn.length && rest) d.classList.add("mixed");
+    } else {
+      d.textContent = label;
+    }
     d.title = text ? `r${r + 1} c${c + 1}: ${text}` : `r${r + 1} c${c + 1}`;
   }
 
@@ -158,9 +261,10 @@ export class ChartGrid {
   get canUndo() { return this.undoStack.length > 0; }
   get canRedo() { return this.redoStack.length > 0; }
 
-  #restore(cells) {
+  #restore(snap) {
     const cur = this.cur;
-    this.cells = cells;
+    this.cells = snap.cells;
+    this.vrepeat = snap.vrepeat;
     this.#render();
     if (cur) this.select(Math.min(cur.r, this.height - 1), Math.min(cur.c, this.width - 1));
     this.#commit(null);
@@ -169,14 +273,14 @@ export class ChartGrid {
   undo() {
     if (this.editing) this.endEdit(false);
     if (!this.undoStack.length) return;
-    this.redoStack.push(this.getData());
+    this.redoStack.push(this.#snapshot());
     this.#restore(this.undoStack.pop());
   }
 
   redo() {
     if (this.editing) this.endEdit(false);
     if (!this.redoStack.length) return;
-    this.undoStack.push(this.getData());
+    this.undoStack.push(this.#snapshot());
     this.#restore(this.redoStack.pop());
   }
 
@@ -189,7 +293,7 @@ export class ChartGrid {
 
   fillSelection(text) {
     if (this.readOnly) return;
-    const before = this.getData();
+    const before = this.#snapshot();
     let changed = false;
     for (const [r, c] of this.#selectedCells()) changed = this.#set(r, c, text) || changed;
     this.#paintSelection();
@@ -213,7 +317,7 @@ export class ChartGrid {
     const sh = Math.abs(a.r - this.cur.r) + 1, sw = Math.abs(a.c - this.cur.c) + 1;
     const tile = sh % bh === 0 && sw % bw === 0;
     const h = tile ? sh : bh, w = tile ? sw : bw;
-    const before = this.getData();
+    const before = this.#snapshot();
     let changed = false;
     for (let i = 0; i < h; i++) {
       for (let j = 0; j < w; j++) {
@@ -242,9 +346,12 @@ export class ChartGrid {
   // r is a round index (0 = cast-on); "above" on screen is r + 1.
   insertRow(at) {
     if (this.readOnly) return;
-    const before = this.getData();
+    const before = this.#snapshot();
     at = Math.max(0, Math.min(this.height, at));
     this.cells.splice(at, 0, Array(this.width).fill(""));
+    const v = this.vrepeat;   // rows below the region shift it; rows inside grow it
+    if (v && at <= v.start - 1) { v.start++; v.end++; }
+    else if (v && at <= v.end - 1) v.end++;
     this.#render();
     this.select(at, this.cur?.c ?? 0);
     this.#commit(before);
@@ -252,8 +359,11 @@ export class ChartGrid {
 
   deleteRow(r) {
     if (this.readOnly || this.height <= 1 || r < 0 || r >= this.height) return;
-    const before = this.getData();
+    const before = this.#snapshot();
     this.cells.splice(r, 1);
+    const v = this.vrepeat;
+    if (v && r < v.start - 1) { v.start--; v.end--; }
+    else if (v && r <= v.end - 1 && --v.end < v.start) this.vrepeat = null;
     this.#render();
     this.select(Math.min(r, this.height - 1), this.cur?.c ?? 0);
     this.#commit(before);
@@ -261,7 +371,7 @@ export class ChartGrid {
 
   insertCol(at) {
     if (this.readOnly) return;
-    const before = this.getData();
+    const before = this.#snapshot();
     at = Math.max(0, Math.min(this.width, at));
     for (const row of this.cells) row.splice(at, 0, "");
     this.#render();
@@ -271,7 +381,7 @@ export class ChartGrid {
 
   deleteCol(c) {
     if (this.readOnly || this.width <= 1 || c < 0 || c >= this.width) return;
-    const before = this.getData();
+    const before = this.#snapshot();
     for (const row of this.cells) row.splice(c, 1);
     this.#render();
     this.select(this.cur?.r ?? 0, Math.min(c, this.width - 1));
@@ -280,6 +390,10 @@ export class ChartGrid {
 
   #showMenu(x, y, r, c) {
     this.#hideMenu();
+    // Rounds for "repeat vertically": the selection's, else the clicked one.
+    const a = this.anchor ?? this.cur;
+    let [lo, hi] = this.cur ? [Math.min(a.r, this.cur.r), Math.max(a.r, this.cur.r)] : [r, r];
+    if (r < lo || r > hi) lo = hi = r;
     const items = [
       ["Insert round above", () => this.insertRow(r + 1)],
       ["Insert round below", () => this.insertRow(r)],
@@ -288,6 +402,10 @@ export class ChartGrid {
       ["Insert column left", () => this.insertCol(c)],
       ["Insert column right", () => this.insertCol(c + 1)],
       ["Delete column", () => this.deleteCol(c)],
+      null,
+      [lo === hi ? `Repeat round ${lo + 1} vertically` : `Repeat rounds ${lo + 1}–${hi + 1} vertically`,
+       () => this.setRepeatRegion(lo, hi)],
+      ...(this.vrepeat ? [["Clear vertical repeat", () => this.setRepeatRegion(null)]] : []),
     ];
     const menu = document.createElement("div");
     menu.className = "ctxmenu";
@@ -299,7 +417,7 @@ export class ChartGrid {
       menu.appendChild(b);
     }
     menu.style.left = `${Math.min(x, innerWidth - 190)}px`;
-    menu.style.top = `${Math.min(y, innerHeight - 200)}px`;
+    menu.style.top = `${Math.min(y, innerHeight - 280)}px`;
     document.body.appendChild(menu);
     this.menu = menu;
   }
@@ -348,7 +466,7 @@ export class ChartGrid {
     this.editing = null;
     const { r, c } = this.cur;
     const value = input.value;
-    const before = this.getData();
+    const before = this.#snapshot();
     input.remove();
     if (commit && this.#set(r, c, value)) this.#commit(before);
     else this.#paint(this.cellEls.get(key(r, c)), r, c);
@@ -372,7 +490,13 @@ export class ChartGrid {
       const d = e.target.closest(".c");
       if (!d || e.button !== 0) return;
       if (this.editing) this.endEdit(true);
-      this.select(+d.dataset.r, +d.dataset.c, e.shiftKey);
+      if (this.brush && !this.readOnly) {
+        this.select(+d.dataset.r, +d.dataset.c);
+        this.stroke = { before: this.#snapshot(), changed: false };
+        this.stroke.changed = this.#brushAt(+d.dataset.r, +d.dataset.c);
+      } else {
+        this.select(+d.dataset.r, +d.dataset.c, e.shiftKey);
+      }
       dragging = true;
       wrap.focus({ preventScroll: true });
       e.preventDefault();
@@ -380,24 +504,33 @@ export class ChartGrid {
     el.addEventListener("pointerover", (e) => {
       const d = e.target.closest(".c");
       if (!d) return;
-      if (dragging) this.select(+d.dataset.r, +d.dataset.c, true);
+      if (dragging && this.stroke) {
+        this.select(+d.dataset.r, +d.dataset.c);
+        this.stroke.changed = this.#brushAt(+d.dataset.r, +d.dataset.c) || this.stroke.changed;
+      } else if (dragging) this.select(+d.dataset.r, +d.dataset.c, true);
       this.onHover(+d.dataset.r, +d.dataset.c);
     });
     el.addEventListener("pointerleave", () => this.onHover(null, null));
-    addEventListener("pointerup", () => (dragging = false));
+    addEventListener("pointerup", () => {
+      dragging = false;
+      const stroke = this.stroke;
+      this.stroke = null;
+      if (stroke?.changed) this.#commit(stroke.before);
+    });
     el.addEventListener("contextmenu", (e) => {
       const d = e.target.closest(".c, .rh, .hd");
       if (!d || this.readOnly) return;
       e.preventDefault();
       const r = d.dataset.r != null ? +d.dataset.r : (this.cur?.r ?? this.height - 1);
       const c = d.dataset.c != null ? +d.dataset.c : (this.cur?.c ?? 0);
-      if (d.classList.contains("c")) this.select(r, c);
+      // Keep a multi-cell selection when right-clicking inside it.
+      if (d.classList.contains("c") && !this.#selectedCells().some(([sr, sc]) => sr === r && sc === c)) this.select(r, c);
       this.#showMenu(e.clientX, e.clientY, r, c);
     });
     addEventListener("pointerdown", (e) => { if (this.menu && !this.menu.contains(e.target)) this.#hideMenu(); });
     addEventListener("keydown", (e) => { if (e.key === "Escape") this.#hideMenu(); });
     el.addEventListener("dblclick", (e) => {
-      if (e.target.closest(".c")) this.startEdit();
+      if (e.target.closest(".c") && !this.brush) this.startEdit();
     });
     wrap.addEventListener("keydown", (e) => {
       if (this.editing || !this.cur) return;

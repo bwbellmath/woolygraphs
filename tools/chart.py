@@ -12,8 +12,11 @@ the author placed a decrease / cast-on, which the renderer and
 optimizer use as flags. Unknown ops are preserved and ignored.
 
 Chart-level parameters ride along as ``# key: value`` lines at the top of
-the CSV (currently ``shaping_row``: the 1-based sheet row where crown
-shaping begins, i.e. the sphere's equator). Unknown keys are preserved.
+the CSV: ``shaping_row`` (the 1-based sheet row where crown shaping
+begins, i.e. the sphere's equator) and ``vrepeat_start`` /
+``vrepeat_end`` / ``vrepeat_count`` (a vertical repeat: sheet rows
+start..end, 1-based and inclusive, are worked count times in all).
+Unknown keys are preserved.
 """
 
 import csv
@@ -24,8 +27,14 @@ COLORS = ("b", "f")           # index == color id in the bundle (0 = bg, 1 = fg)
 DECREASE_OPS = {"k2tog", "ssk", "k3tog", "cdd", "p2tog"}
 # Centred double decreases: the stitch in this slot is the middle of
 # three, and the dead slots on either side of it are worked into it.
+# k3tog is kept for older charts; new ones use cdd.
 CENTRED_DECREASE_OPS = {"k3tog", "cdd"}
 INCREASE_OPS = {"co", "kfb", "m1", "m1l", "m1r", "yo", "pfb"}
+
+# Default gauge, measured from a finished hat: 17.5 stitches and 26
+# rounds in 2 inches.
+DEFAULT_HORIZONTAL_GAUGE = 17.5 / 2    # stitches per inch
+DEFAULT_VERTICAL_GAUGE = 26 / 2        # rounds per inch
 
 
 @dataclass(frozen=True)
@@ -48,7 +57,7 @@ class Cell:
     @property
     def consumes(self):
         """Stitches from the round below this one absorbs besides its own
-        (k2tog 1, k3tog 2)."""
+        (k2tog / ssk 1, cdd 2)."""
         if self.is_centred_decrease:
             return 2
         return 1 if self.is_decrease else 0
@@ -80,8 +89,12 @@ class Round:
     newly_dead: list            # slots live on the previous round, blank now
     newly_cast: list            # slots blank on the previous round, live now
     synthesized: bool = False   # generated past the end of the chart
+    sheet_row: int = -1         # chart row this round was knit from
     # newly dead slot -> live slot of the stitch it was worked into
     merged_into: dict = field(default_factory=dict)
+    # live slot -> slot of the stitch it is worked into on the round
+    # below; absent on the first round and for cast-ons
+    below: dict = field(default_factory=dict)
 
     @property
     def count(self):
@@ -113,6 +126,49 @@ class Chart:
             self.meta.pop("shaping_row", None)
         else:
             self.meta["shaping_row"] = str(int(row))
+
+    @property
+    def vertical_repeat(self):
+        """(start, end, count): sheet rows start..end (1-based,
+        inclusive) worked count times in all; None if unset or invalid."""
+        try:
+            start = int(self.meta["vrepeat_start"])
+            end = int(self.meta["vrepeat_end"])
+            count = int(self.meta.get("vrepeat_count", 1))
+        except (KeyError, TypeError, ValueError):
+            return None
+        if not 1 <= start <= end <= self.height or count < 1:
+            return None
+        return start, end, count
+
+    @vertical_repeat.setter
+    def vertical_repeat(self, spec):
+        """spec: None, (start, end, count) or {"start", "end", "count"}."""
+        for k in ("vrepeat_start", "vrepeat_end", "vrepeat_count"):
+            self.meta.pop(k, None)
+        if not spec:
+            return
+        if isinstance(spec, dict):
+            spec = (spec.get("start"), spec.get("end"), spec.get("count", 1))
+        start, end, count = (int(v) for v in spec)
+        self.meta["vrepeat_start"] = str(start)
+        self.meta["vrepeat_end"] = str(end)
+        self.meta["vrepeat_count"] = str(max(1, count))
+
+    def round_rows(self):
+        """Sheet row (0-based) of every round in knit order, with the
+        vertical repeat expanded."""
+        rows = list(range(self.height))
+        vr = self.vertical_repeat
+        if vr is None:
+            return rows
+        start, end, count = vr
+        return rows[:start - 1] + rows[start - 1:end] * count + rows[end:]
+
+    def expanded_rows(self):
+        """Cell text of every round in knit order (vertical repeat
+        expanded)."""
+        return [self.rows[i] for i in self.round_rows()]
 
     @property
     def width(self):
@@ -153,7 +209,12 @@ class Chart:
     def to_json(self):
         return {"cells": self.rows, "width": self.width,
                 "height": self.height, "name": self.name,
-                "shaping_row": self.shaping_row}
+                "shaping_row": self.shaping_row,
+                "vertical_repeat": self._vertical_repeat_json()}
+
+    def _vertical_repeat_json(self):
+        vr = self.vertical_repeat
+        return dict(zip(("start", "end", "count"), vr)) if vr else None
 
     def errors(self):
         """[(row, col, message)] for cells that do not parse."""
@@ -186,25 +247,38 @@ class Chart:
         nearest live neighbour past the end of the chart until at most
         ``wedges`` stitches remain (rounds marked synthesized).
         """
-        grid = [row * repeats for row in self.parsed()]
+        parsed = self.parsed()
+        sheet_rows = self.round_rows()
+        grid = [parsed[i] * repeats for i in sheet_rows]
         if not grid or not any(grid[0]):
             raise ValueError("first round has no stitches; "
                              "is the chart upside-down?")
         n_slots = len(grid[0])
         rounds = []
-        prev_live = set()
+        prev = []
         for r, row in enumerate(grid):
             live = [s for s in range(n_slots) if row[s] is not None]
             if not live:
-                raise ValueError(f"round {r + 1} has no stitches")
-            live_set = set(live)
-            newly_dead = sorted(prev_live - live_set)
-            newly_cast = sorted(live_set - prev_live) if r > 0 else []
+                raise ValueError(f"round {sheet_rows[r] + 1} has no stitches")
             cells = {s: row[s] for s in live}
-            rounds.append(Round(live, cells, newly_dead, newly_cast,
-                                merged_into=resolve_merges(
-                                    live, cells, newly_dead, n_slots)))
-            prev_live = live_set
+            if r and len(live) == len(prev) and not any(
+                    c.is_decrease or c.is_increase for c in cells.values()):
+                # Same count, no shaping: blanks that moved are only
+                # where the chart draws the gap, not a cast-on plus a
+                # decrease. Collapse both rounds and stack them.
+                rounds.append(Round(live, cells, [], [],
+                                    sheet_row=sheet_rows[r],
+                                    below=align_ranks(prev, live, n_slots)))
+            else:
+                newly_dead = sorted(set(prev) - set(live))
+                newly_cast = sorted(set(live) - set(prev)) if r else []
+                rounds.append(Round(live, cells, newly_dead, newly_cast,
+                                    sheet_row=sheet_rows[r],
+                                    merged_into=resolve_merges(
+                                        live, cells, newly_dead, n_slots),
+                                    below=link_nearest(prev, live,
+                                                       newly_cast, n_slots)))
+            prev = live
 
         last_dec = next((rd for rd in reversed(rounds) if rd.newly_dead), None)
         if extend_crown and last_dec is not None:
@@ -227,7 +301,11 @@ class Chart:
                     k = nearest_slot(live, s, n_slots)
                     cells[k] = Cell(cells[k].color, cells[k].ops + ("k2tog",))
                 rounds.append(Round(live, cells, newly_dead, [],
+                                    below=link_nearest(prev.live, live, [],
+                                                       n_slots),
                                     synthesized=True,
+                                    sheet_row=self.height + len(rounds)
+                                    - len(sheet_rows),
                                     merged_into=resolve_merges(
                                         live, cells, newly_dead,
                                         n_slots)))
@@ -245,6 +323,7 @@ def from_bundle(bundle):
     if "cells" in bundle:
         chart = Chart(bundle["cells"], name=bundle.get("name", "chart"))
         chart.shaping_row = bundle.get("shaping_row")
+        chart.vertical_repeat = bundle.get("vertical_repeat")
         return chart
     if "chart" in bundle:
         return from_bundle(bundle["chart"])
@@ -274,6 +353,35 @@ def strip_trailing_blank(rows):
 def nearest_slot(slots, s, n_slots):
     """Live slot closest to slot s around the ring."""
     return min(slots, key=lambda c: min((c - s) % n_slots, (s - c) % n_slots))
+
+
+def link_nearest(prev, live, newly_cast, n_slots):
+    """Each stitch hangs from the nearest live slot below; cast-ons
+    (and the first round, prev empty) have no stitch below."""
+    if not prev:
+        return {}
+    cast = set(newly_cast)
+    return {s: nearest_slot(prev, s, n_slots) for s in live if s not in cast}
+
+
+def align_ranks(prev, live, n_slots, max_shift=8):
+    """Stack two rounds with the same stitch count: the k-th stitch of
+    ``live`` is worked into the (k + shift)-th of ``prev`` (cyclic), as if
+    both rows were collapsed left over their blanks. shift is the one
+    that moves stitches least around the ring, 0 (the plain left
+    collapse) on a tie, so a gap that wraps past the edge of a repeat
+    does not twist the whole round."""
+    n = len(live)
+    if live == prev:
+        return dict(zip(live, prev))
+
+    def cost(k):
+        return sum(min((a - b) % n_slots, (b - a) % n_slots)
+                   for a, b in zip(live, prev[k:] + prev[:k]))
+    shift = min(range(-min(max_shift, n - 1), min(max_shift, n - 1) + 1),
+                key=lambda k: (cost(k % n), abs(k)))
+    k = shift % n
+    return dict(zip(live, prev[k:] + prev[:k]))
 
 
 def resolve_merges(live, cells, newly_dead, n_slots):
@@ -326,7 +434,7 @@ def from_legacy(rows, implicit_decreases=False):
 
     B -> f, W -> b, O/D -> blank. D marks are cumulative; a killed slot
     stays dead even if re-coloured later. Every killed slot puts
-    ``k2tog`` on its nearest survivor (``k3tog`` when two slots share a
+    ``k2tog`` on its nearest survivor (``cdd`` when two slots share a
     survivor), and every slot that goes from O
     to live gets ``co`` -- the rules the old spiral_layout used. With
     implicit_decreases, a slot that was live and simply turns O also
@@ -355,7 +463,7 @@ def from_legacy(rows, implicit_decreases=False):
             k = nearest_slot(live, s, n_slots)
             eaten[k] = eaten.get(k, 0) + 1
         for k, n in eaten.items():
-            # one consumed neighbour -> k2tog, two -> k3tog, ...
-            text[k] += f"-k{n + 1}tog"
+            # one consumed neighbour -> k2tog, two -> cdd, more -> k<n>tog
+            text[k] += "-cdd" if n == 2 else f"-k{n + 1}tog"
         out.append(text)
     return Chart(out)

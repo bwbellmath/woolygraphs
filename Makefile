@@ -36,8 +36,8 @@ REPEATS := 4
 # Per-chart repeat count (the shaping in each CSV is drawn for one value).
 REPEATS_alt_cubes := 6
 CHART_REPEATS = $(or $(REPEATS_$(1)),$(REPEATS))
-HGAUGE  := 8
-VGAUGE  := 12
+HGAUGE  := 8.75
+VGAUGE  := 13
 
 .PHONY: small_cubes alt_cubes open serve layout layouts chart charts test doc clean env clean-env
 

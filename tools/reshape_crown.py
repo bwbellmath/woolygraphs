@@ -28,7 +28,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from chart import Chart, parse_cell  # noqa: E402
+from chart import DEFAULT_HORIZONTAL_GAUGE, DEFAULT_VERTICAL_GAUGE, Chart, parse_cell  # noqa: E402
 
 
 def kill_order(width, centre, spine):
@@ -131,8 +131,8 @@ def main():
     ap.add_argument("chart_csv")
     ap.add_argument("-o", "--output", help="default: overwrite the input")
     ap.add_argument("--repeats", type=int, default=6)
-    ap.add_argument("--horizontal-gauge", type=float, default=8.0)
-    ap.add_argument("--vertical-gauge", type=float, default=12.0)
+    ap.add_argument("--horizontal-gauge", type=float, default=DEFAULT_HORIZONTAL_GAUGE)
+    ap.add_argument("--vertical-gauge", type=float, default=DEFAULT_VERTICAL_GAUGE)
     ap.add_argument("--centre", type=int, required=True,
                     help="1-based column the gore opens at")
     ap.add_argument("--spine", type=int, required=True,

@@ -1,9 +1,11 @@
 import * as THREE from "three";
 import { ChartGrid, SideSheet, parseCell, COLORS, DECREASE_OPS, INCREASE_OPS } from "./chart.js";
+import { STITCHES, symbolSvg } from "./stitches.js";
 import { defaultShapingRow, guideCells, idealWidths, widestRound, sphereRadius, leafRounds } from "./shaping.js";
 import { buildEdges, edgeLengths, relativeError, histogram, binValues,
-         strainColor, quantile } from "./metrics.js";
+         strainColor, quantile, CLASSES } from "./metrics.js";
 import { renderHistogram, renderStats, renderDeviation } from "./histogram.js";
+import { drawScaleBar, scaleBarHeight } from "./scalebar.js";
 
 const $ = (id) => document.getElementById(id);
 const PARAMS = new URLSearchParams(location.search);
@@ -102,10 +104,23 @@ const _up = new THREE.Vector3(0, 1, 0);
 // repeats, gauge and shapingRow live on the server (sent with every chart
 // sync, saved with the chart); radiusFrom is a view setting.
 const params = {
-  repeats: 4, hg: 8, vg: 12,
+  repeats: 4, hg: 8.75, vg: 13,   // gauge: 17.5 st and 26 rnds in 2"
   shapingRow: null,     // 1-based sheet row; null = default (round before the first decrease), not saved
   radiusFrom: "layout", // "layout": fitted to the shaping row's stitches; "gauge": circumference / 2 pi
+  vcount: 1,            // times the vertical repeat region (grid.vrepeat) is worked
 };
+
+// The vertical repeat as the server takes it, or null.
+function vrepeatPayload() {
+  return grid.vrepeat ? { ...grid.vrepeat, count: params.vcount } : null;
+}
+
+// Round (0-based) knit from a sheet row: its last copy when the row is in
+// a vertical repeat, so the crown sphere sits on the round actually knit.
+function roundOfRow(row) {
+  const i = d?.round_sheet_row?.lastIndexOf(row) ?? -1;
+  return i >= 0 ? i : row;
+}
 
 let d = null;     // current bundle
 let hat = null;   // {mesh, yarnLine, colLines, yarnPairs, stitchEnd, colEdgeEnd, cellIndex}
@@ -242,6 +257,7 @@ function paint() {
   }
   hat.mesh.instanceColor.needsUpdate = true;
   updateSphereGuide(sphere);
+  updateScaleBar(sphere, scale);
   if (sphere) {
     rampLabels(scale, true);
     const f = (v) => v.toFixed(2);
@@ -271,6 +287,73 @@ function rampLabels(scale, sphere) {
   $("rampmax").textContent = sphere ? `+${pct}% outside` : `+${pct}% longer`;
 }
 
+// ---------- colour key under the 3D view ----------
+// What the stitches / edges on screen are coloured by: flat colours as
+// swatches, an active heatmap as an annotated ramp.
+let legend = { swatches: [], ramp: null };
+function legendSpec(sphere, scale) {
+  const hex = (c) => `#${c.getHexString()}`;
+  const swatches = [], strain = strainMode();
+  if (!strain) {
+    swatches.push({ color: palette.bg, label: "background (b)" }, { color: palette.fg, label: "foreground (f)" });
+    if (sphere) {
+      swatches.push({ color: hex(paletteColor[1].clone().multiplyScalar(0.25)), label: "below shaping row (dimmed)" });
+    } else if ($("t_dec").checked) {
+      swatches.push({ color: hex(COLOR_DEC), label: "decrease" }, { color: hex(COLOR_INC), label: "cast-on" });
+    }
+    if (d?.synthesized?.some(Boolean)) {
+      swatches.push({ color: hex(paletteColor[1].clone().multiplyScalar(SYNTH_FADE)), label: "extended crown (darkened)" });
+    }
+  }
+  let ramp = null;
+  if (strain) {
+    ramp = { title: "Edge strain: edge length vs gauge (length / gauge − 1)", scale: strainScale(),
+             lo: "shorter", zero: "on gauge", hi: "longer" };
+  } else if (sphere) {
+    const how = $("s_fit").checked ? "scale fitted to data" : "manual scale";
+    ramp = { title: `Distance from crown sphere: |p − c| / R − 1  (R ${sphere.radius.toFixed(2)} in, ` +
+                    `${params.radiusFrom === "layout" ? "fitted to layout" : "from gauge"}; ${how})`,
+             scale, lo: "inside", zero: "on sphere", hi: "outside" };
+  }
+  return { swatches, ramp };
+}
+
+function updateScaleBar(sphere, scale) {
+  legend = legendSpec(sphere, scale);
+  const bar = $("scalebar"), w = view.clientWidth, h = scaleBarHeight(legend);
+  const dpr = renderer.getPixelRatio();
+  bar.hidden = !h;
+  view.style.setProperty("--barh", `${h}px`);
+  if (!h) return;
+  bar.style.height = `${h}px`;
+  bar.width = Math.round(w * dpr);
+  bar.height = Math.round(h * dpr);
+  const ctx = bar.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawScaleBar(ctx, w, legend);
+}
+
+// The view as shown plus its key, as one PNG. Rendering right before the
+// copy keeps the WebGL frame readable without preserveDrawingBuffer.
+function viewImage() {
+  renderer.render(scene, camera);
+  const dpr = renderer.getPixelRatio();
+  const w = canvas.clientWidth, h = canvas.clientHeight, bh = scaleBarHeight(legend);
+  const out = document.createElement("canvas");
+  out.width = canvas.width;
+  out.height = canvas.height + Math.round(bh * dpr);
+  const ctx = out.getContext("2d");
+  ctx.drawImage(canvas, 0, 0);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (bh) drawScaleBar(ctx, w, legend, h);
+  return out;
+}
+const pngBlob = (c) => new Promise((res) => c.toBlob(res, "image/png"));
+$("b_saveimg").onclick = async () => {
+  const mode = strainMode() ? "strain" : sphereMode() ? "sphere" : "colors";
+  download(`${d?.name ?? "hat"}_${mode}.png`, await pngBlob(viewImage()), "image/png");
+};
+
 function updateSphereGuide(sphere) {
   const on = !!sphere?.n && $("t_guide").checked;
   sphereGuide.visible = sphereCentre.visible = on;
@@ -295,7 +378,7 @@ function sphereError() {
   const p = readShaping();
   const pos = d.positions, ri = d.round_index, n = d.n_stitches;
   const ctr = p.centre;
-  const ring = fitRing(p.equator);
+  const ring = fitRing(p.equatorRound);
   const err = new Float64Array(n).fill(NaN);
   const out = { err, radius: p.radius, n: 0, rms: 0, min: 0, max: 0, q02: 0, q98: 0,
                 centre: ctr, axis: [0, 0, 1], tilt: 0, ringRadius: ring?.radius ?? 0 };
@@ -303,7 +386,7 @@ function sphereError() {
 
   const base = fitRing(0);
   const ax = new THREE.Vector3(...ctr).sub(new THREE.Vector3(...base.centre));
-  if (p.equator > 0 && ax.lengthSq() > 1e-12) {
+  if (p.equatorRound > 0 && ax.lengthSq() > 1e-12) {
     ax.normalize();
     out.axis = ax.toArray();
     out.tilt = THREE.MathUtils.radToDeg(ax.angleTo(_zAxis));
@@ -312,7 +395,7 @@ function sphereError() {
   const vals = [];
   let sq = 0;
   for (let i = 0; i < n; i++) {
-    if (ri[i] < p.equator) continue;
+    if (ri[i] < p.equatorRound) continue;
     const e = Math.hypot(pos[i][0] - ctr[0], pos[i][1] - ctr[1], pos[i][2] - ctr[2]) / p.radius - 1;
     err[i] = e;
     vals.push(e);
@@ -415,6 +498,39 @@ const grid = new ChartGrid($("gridwrap"), {
   },
 });
 
+// Ops as chart symbols or text; a view setting, remembered per browser.
+$("c_symbols").checked = localStorage.getItem("wg.symbols") === "1";
+grid.setSymbols($("c_symbols").checked);
+$("c_symbols").onchange = (e) => {
+  grid.setSymbols(e.target.checked);
+  localStorage.setItem("wg.symbols", e.target.checked ? "1" : "0");
+};
+
+// Stitch buttons: one on at a time; while it is, clicking or dragging
+// over cells swaps their construction (grid.setBrush).
+function setBrush(stitch) {
+  grid.setBrush(stitch);
+  $("stitchbar").querySelectorAll("button").forEach((b) => b.classList.toggle("on", stitch?.abbr === b.dataset.abbr));
+}
+const stsym = (s) => `<span class="stsym">${s.symbol ? symbolSvg([s.op]) : ""}</span>`;
+for (const s of STITCHES) {
+  const b = document.createElement("button");
+  b.className = "alt";
+  b.dataset.abbr = s.abbr;
+  b.title = `${s.abbr}: ${s.name}`;
+  b.innerHTML = `${stsym(s)}${s.abbr}`;
+  b.onclick = () => setBrush(grid.brush === s ? null : s);
+  $("stitchbar").appendChild(b);
+}
+addEventListener("keydown", (e) => { if (e.key === "Escape" && grid.brush && !grid.editing) setBrush(null); });
+
+// Stitches tab: what each construction is and how it is worked.
+$("stitchlist").innerHTML = `<table><thead><tr><th></th><th>stitch</th><th>name</th><th>type</th>` +
+  `<th>construction</th></tr></thead><tbody>` +
+  STITCHES.map((s) => `<tr><td>${stsym(s)}</td><td class="abbr">${s.abbr}</td><td>${s.name}</td>` +
+    `<td class="kind">${s.kind}</td><td>${s.construction}</td></tr>`).join("") +
+  `</tbody></table>`;
+
 function setChartStatus(text, bad = false) {
   $("chartstat").textContent = text;
   $("chartstat").className = bad ? "bad" : "";
@@ -475,6 +591,7 @@ async function syncChart() {
       body: JSON.stringify({
         cells, repeats: params.repeats, shaping_row: params.shapingRow,
         horizontal_gauge: params.hg, vertical_gauge: params.vg,
+        vertical_repeat: vrepeatPayload(),
       }),
     });
     const body = await res.json();
@@ -483,7 +600,9 @@ async function syncChart() {
     loadBundle(body);
     describeChart(body.chart);
     refreshShaping();
-    await refreshState(); // layout + optimizer survive text-only edits
+    // The server keeps the layout across edits (text-only: as is;
+    // structural: patched locally), so pick up its positions.
+    await refreshState();
   } catch (e) {
     setChartStatus(`sync failed: ${e}`, true);
   } finally {
@@ -505,6 +624,16 @@ $("b_save").onclick = async () => {
     setChartStatus(`saved to ${chart.path}`);
   } catch (e) { setChartStatus(`save failed: ${e}`, true); }
 };
+// Vertical repeat region from the sheet selection.
+$("b_vrepeat").onclick = () => {
+  const rows = grid.selectedRows();
+  if (!rows) { setChartStatus("select the rounds to repeat on the sheet first"); return; }
+  grid.setRepeatRegion(...rows);
+  showParams();
+  $("gridwrap").focus({ preventScroll: true });
+};
+$("b_vclear").onclick = () => { grid.setRepeatRegion(null); showParams(); };
+
 // ---------- file bar: load / import / export / save as ----------
 function applyLoaded(body) {
   version = body.version;
@@ -580,8 +709,34 @@ $("b_export_csv").onclick = () =>
 $("b_export_json").onclick = () => {
   const chart = { cells: grid.getData(), repeats: params.repeats,
     horizontal_gauge: params.hg, vertical_gauge: params.vg,
-    shaping_row: params.shapingRow, name: d.name };
+    shaping_row: params.shapingRow, vertical_repeat: vrepeatPayload(), name: d.name };
   download(`${d.name}_layout.json`, JSON.stringify({ ...d, chart }), "application/json");
+};
+
+$("b_export_tex").onclick = async () => {
+  const style = $("texstyle").value;
+  try {
+    const { tex } = await postJson("api/export_tex", {
+      cells: grid.getData(), style, name: d.name,
+      repeats: params.repeats, horizontal_gauge: params.hg, vertical_gauge: params.vg,
+      shaping_row: params.shapingRow, vertical_repeat: vrepeatPayload(),
+      fg: palette.fg, bg: palette.bg,
+    });
+    download(`${d.name}_${style}.tex`, tex, "application/x-tex");
+  } catch (e) { setChartStatus(`LaTeX export failed: ${e.message}`, true); }
+};
+
+$("b_saveversion").onclick = async () => {
+  try {
+    const chart = await postJson("api/save_version");
+    describeChart(chart);
+    d.name = chart.name;
+    d.layout_source = chart.layout_source;
+    $("name").textContent = chart.name;
+    $("layoutsrc").textContent = `layout: ${chart.layout_source} (saved)`;
+    setChartStatus(`saved ${chart.path} and ${chart.layout_source}`);
+    refreshFiles(chart.path);
+  } catch (e) { setChartStatus(`save new version failed: ${e.message}`, true); }
 };
 
 $("b_saveas").onclick = async () => {
@@ -641,6 +796,7 @@ const PARAM_INPUTS = {
   vg: { ids: ["c_vg", "s_vg"], event: "change", parse: Number, min: 0.5, max: 60 },
   shapingRow: { ids: ["c_row", "s_eq"], event: "input", parse: (v) => Math.round(v), min: 1 },
   radiusFrom: { ids: ["c_rfrom", "s_rfrom"], event: "change" },
+  vcount: { ids: ["c_vcount"], event: "change", parse: (v) => Math.round(v), min: 1, max: 99 },
 };
 
 // Take the server's values (on load; syncs never write back, so typing is
@@ -650,6 +806,9 @@ function paramsFromChart(chart, bundle) {
   params.hg = chart.horizontal_gauge ?? bundle.horizontal_gauge ?? params.hg;
   params.vg = chart.vertical_gauge ?? bundle.vertical_gauge ?? params.vg;
   params.shapingRow = chart.shaping_row ?? bundle.shaping_row ?? null;
+  const vr = chart.vertical_repeat ?? bundle.vertical_repeat ?? null;
+  params.vcount = vr?.count ?? 1;
+  grid.setVRepeat(vr && { start: vr.start, end: vr.end }, params.vcount);
   showParams();
 }
 
@@ -665,6 +824,9 @@ function showParams() {
     for (const id of spec.ids) if (document.activeElement !== $(id)) $(id).value = v;
   }
   $("s_width").value = grid.width;
+  const v = grid.vrepeat;
+  $("c_vrows").textContent = v ? `rounds ${v.start}–${v.end}` : "";
+  $("b_vclear").disabled = !v || !serverOnline;
   if (!d) return;
   const sph = shapingSphere();
   const text = sph.fit
@@ -679,6 +841,7 @@ function showParams() {
 function setParam(key, value) {
   if (params[key] === value) return;
   params[key] = value;
+  if (key === "vcount") grid.setVCount(value);
   showParams();
   refreshShaping();
   if (key !== "radiusFrom") scheduleSync(grid.getData());
@@ -731,9 +894,10 @@ function fitRing(round) {
 function shapingSphere(actual = sheetCounts()) {
   const row = Math.max(1, Math.min(Math.max(1, actual.length), currentShapingRow()));
   const gaugeRadius = sphereRadius((actual[row - 1] ?? 0) * params.repeats, params.hg) || 1;
-  const fit = d && row - 1 < d.stitch_counts.length ? fitRing(row - 1) : null;
+  const eqRound = roundOfRow(row - 1);
+  const fit = d && eqRound < d.stitch_counts.length ? fitRing(eqRound) : null;
   const radius = params.radiusFrom === "layout" && fit ? fit.radius : gaugeRadius;
-  return { row, radius, gaugeRadius, fit, centre: fit?.centre ?? [0, 0, 0] };
+  return { row, eqRound, radius, gaugeRadius, fit, centre: fit?.centre ?? [0, 0, 0] };
 }
 
 // Everything the shaping guide needs, from the shared parameters.
@@ -742,7 +906,8 @@ function readShaping(actual = sheetCounts()) {
   return {
     slices: params.repeats, width: grid.width,
     hg: params.hg, vg: params.vg,
-    shapingRow: sph.row, equator: sph.row - 1,
+    shapingRow: sph.row, equator: sph.row - 1, // sheet rows
+    equatorRound: sph.eqRound,                 // the round knit from it
     radius: sph.radius, centre: sph.centre,
     dec: $("s_dec").value,
   };
@@ -858,7 +1023,179 @@ function refreshEdges() {
   const hi = Math.max(quantile(sorted, 0.998), scale * 1.15);
   renderDeviation($("devsvg"), binValues(err, bins, lo, hi),
                   { scale, logY: $("e_log").checked });
+  lastEdges = { byLength, plotted, scale };
 }
+let lastEdges = null;   // what the Edges tab last drew, for its exports
+// ---------- Edges tab export: image and LaTeX ----------
+const PLOT_BG = "#181b21";
+const UI_FONT = '-apple-system, "Segoe UI", Helvetica, Arial, sans-serif';
+
+// A plot's SVG as standalone markup: hover layers dropped, sized, and
+// given the page font so it renders the same outside the page.
+function plotSvgText(svg) {
+  const c = svg.cloneNode(true);
+  c.querySelectorAll('rect[fill="transparent"], g[visibility="hidden"]').forEach((n) => n.remove());
+  const [, , w, h] = c.getAttribute("viewBox").split(" ").map(Number);
+  c.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  c.setAttribute("width", w); c.setAttribute("height", h);
+  c.setAttribute("style", `font-family: ${UI_FONT}; background: ${PLOT_BG}`);
+  const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  for (const [k, v] of Object.entries({ width: "100%", height: "100%", fill: PLOT_BG })) bg.setAttribute(k, v);
+  c.insertBefore(bg, c.firstChild);
+  return { text: new XMLSerializer().serializeToString(c), w, h };
+}
+
+// The plot as an image (for drawing onto a canvas).
+function plotImage(svg) {
+  const { text, w, h } = plotSvgText(svg);
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res({ img, w, h });
+    img.onerror = rej;
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(text);
+  });
+}
+
+// One plot rasterised at `scale` x its viewBox.
+async function plotCanvas(svg, scale = 3) {
+  const { img, w, h } = await plotImage(svg);
+  const c = document.createElement("canvas");
+  c.width = w * scale; c.height = h * scale;
+  const ctx = c.getContext("2d");
+  ctx.scale(scale, scale);
+  ctx.drawImage(img, 0, 0, w, h);
+  return c;
+}
+
+// The stats table, as on the tab, onto a canvas at (x, y); returns height.
+function drawStatsTable(ctx, x, y, w, hist) {
+  const cols = ["series", "edges", "gauge", "mean", "median", "std dev", "mean vs gauge"];
+  const at = [0, 0.3, 0.42, 0.54, 0.66, 0.78, 1].map((f) => x + f * w);
+  const f4 = (v) => (v == null || !isFinite(v) ? "—" : v.toFixed(4));
+  ctx.font = `12px ${UI_FONT}`;
+  ctx.textBaseline = "middle";
+  const row = (cells, yy, colour) => cells.forEach((t, i) => {
+    ctx.textAlign = i === 0 ? "left" : "right";
+    ctx.fillStyle = Array.isArray(colour) ? colour[i] : colour;
+    ctx.fillText(t, i === 0 ? at[0] + (cells.swatch ? 15 : 0) : at[i], yy);
+  });
+  row(cols, y + 9, "#898781");
+  ctx.fillStyle = "#383835"; ctx.fillRect(x, y + 19, w, 1);
+  let yy = y + 33;
+  CLASSES.forEach((cls, s) => {
+    const st = hist.stats[s];
+    if (!st.n) return;
+    const off = st.rest ? (st.mean / st.rest - 1) * 100 : 0;
+    const offCol = Math.abs(off) < 1 ? "#7bd88f" : Math.abs(off) < 5 ? "#d7dae0" : "#ff8a80";
+    ctx.fillStyle = cls.color; ctx.fillRect(x, yy - 5, 10, 10);
+    const cells = [`${cls.name} (${cls.short})`, st.n.toLocaleString(), f4(st.rest), f4(st.mean),
+      f4(st.median), f4(st.std), `${off >= 0 ? "+" : ""}${off.toFixed(2)}%`];
+    cells.swatch = true;
+    row(cells, yy, [...Array(6).fill("#d7dae0"), offCol]);
+    ctx.fillStyle = "#23272e"; ctx.fillRect(x, yy + 11, w, 1);
+    yy += 24;
+  });
+  ctx.textAlign = "left";
+  return yy - y;
+}
+
+// Wrap text to width; returns the lines.
+function wrapText(ctx, text, width) {
+  const lines = [];
+  let line = "";
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const t = line ? `${line} ${word}` : word;
+    if (ctx.measureText(t).width > width && line) { lines.push(line); line = word; }
+    else line = t;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+// The tab's content -- title, histogram, stats table, deviation plot and
+// its note -- composed as one picture at `scale` x.
+async function edgesTabCanvas(scale = 2) {
+  const W = 680, pad = 20, inner = W - 2 * pad;
+  const hist = await plotImage($("edgesvg")), dev = await plotImage($("devsvg"));
+  const hh = inner * hist.h / hist.w, dh = inner * dev.h / dev.w;
+  const meas = document.createElement("canvas").getContext("2d");
+  meas.font = `11px ${UI_FONT}`;
+  const note = wrapText(meas, $("e_note").textContent, inner);
+  const rows = CLASSES.filter((_, s) => lastEdges.byLength.stats[s].n).length;
+  const H = pad + 40 + hh + 16 + 24 * rows + 30 + 30 + dh + 10 + note.length * 15 + pad;
+  const c = document.createElement("canvas");
+  c.width = W * scale; c.height = Math.ceil(H * scale);
+  const ctx = c.getContext("2d");
+  ctx.scale(scale, scale);
+  ctx.fillStyle = PLOT_BG; ctx.fillRect(0, 0, W, H);
+  ctx.textBaseline = "alphabetic";
+  let y = pad + 14;
+  ctx.fillStyle = "#fff"; ctx.font = `600 14px ${UI_FONT}`;
+  ctx.fillText(`${d.name} — edge lengths`, pad, y);
+  ctx.fillStyle = "#8b93a1"; ctx.font = `12px ${UI_FONT}`;
+  ctx.fillText(`${d.n_stitches.toLocaleString()} stitches · gauge ${params.hg} st × ${params.vg} rnd per inch` +
+    ` · ${$("layoutsrc").textContent || "layout"}`, pad, y + 18);
+  y += 26;
+  ctx.drawImage(hist.img, pad, y, inner, hh);
+  y += hh + 16;
+  y += drawStatsTable(ctx, pad, y, inner, lastEdges.byLength) + 12;
+  ctx.fillStyle = "#c3c2b7"; ctx.font = `12px ${UI_FONT}`;
+  ctx.fillText($("tab-edges").querySelector(".plothead").textContent, pad, y + 12);
+  y += 24;
+  ctx.drawImage(dev.img, pad, y, inner, dh);
+  y += dh + 14;
+  ctx.fillStyle = "#6f7785"; ctx.font = `11px ${UI_FONT}`;
+  note.forEach((l, i) => ctx.fillText(l, pad, y + i * 15));
+  return c;
+}
+
+const dataUrl = (blob) => new Promise((res) => {
+  const r = new FileReader();
+  r.onload = () => res(r.result);
+  r.readAsDataURL(blob);
+});
+
+$("e_saveimg").onclick = async () => {
+  refreshEdges();
+  download(`${d.name}_edges.png`, await pngBlob(await edgesTabCanvas()), "image/png");
+};
+
+$("e_tex").onclick = async () => {
+  const btn = $("e_tex");
+  btn.disabled = true;
+  try {
+    refreshEdges();
+    const images = {
+      "histogram.png": await dataUrl(await pngBlob(await plotCanvas($("edgesvg")))),
+      "deviation.png": await dataUrl(await pngBlob(await plotCanvas($("devsvg")))),
+      "view.png": await dataUrl(await pngBlob(viewImage())),
+      "edges_tab.png": await dataUrl(await pngBlob(await edgesTabCanvas())),
+      "histogram.svg": plotSvgText($("edgesvg")).text,
+      "deviation.svg": plotSvgText($("devsvg")).text,
+    };
+    const res = await fetch("api/export_edges", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: d.name, images,
+        stats: lastEdges.byLength.stats.map((st, s) => ({ ...st, ...CLASSES[s] })),
+        clipped: lastEdges.plotted.clipped, mode: lastEdges.plotted.mode,
+        log: $("e_log").checked, strain_scale: lastEdges.scale,
+        gauge: { horizontal: params.hg, vertical: params.vg },
+        repeats: params.repeats, n_stitches: d.n_stitches,
+        layout_source: d.layout_source ?? null,
+        settings: { lr: pNum("p_lr"), scheme: $("p_scheme").value,
+                    weights: { gauge: pNum("p_wg"), inflate: pNum("p_wi"), smooth: pNum("p_ws") } },
+      }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error ?? `HTTP ${res.status}`);
+    download(`${d.name}_edges.zip`, await res.blob(), "application/zip");
+  } catch (e) {
+    alert(`LaTeX export failed: ${e.message}`);
+  } finally {
+    btn.disabled = !serverOnline;
+  }
+};
+
 $("e_bins").oninput = refreshEdges;
 $("e_mode").onchange = refreshEdges;
 $("e_log").onchange = refreshEdges;
@@ -883,7 +1220,20 @@ function hoverTick() {
   else grid.highlight(null);
 }
 
-// ---------- smoothing (server-side Adam, background job) ----------
+// ---------- smoothing (server-side optimizer, background job) ----------
+// Iteration counts suited to each scheme: an implicit iteration is a
+// whole sparse solve, so far fewer are needed. Learning rate is Adam's.
+const SCHEME_DEFAULTS = {
+  direct: { iters: 1000, every: 500 },
+  local_global: { iters: 200, every: 10 },
+  gauss_newton: { iters: 30, every: 2 },
+};
+$("p_scheme").onchange = () => {
+  const s = $("p_scheme").value, def = SCHEME_DEFAULTS[s];
+  $("p_iters").value = def.iters;
+  $("p_every").value = def.every;
+  $("p_lr").disabled = s !== "direct";
+};
 const pNum = (id) => parseFloat($(id).value.replace(/,/g, ""));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let version = 0;
@@ -897,9 +1247,11 @@ function showState(st) {
   const iter = st.running
     ? `iter ${st.iterations_total} / ${st.target}`
     : st.iterations_total ? `iter ${st.iterations_total}` : "initial layout";
+  // Implicit schemes also report the line-search step and CG iterations.
+  const solve = l?.cg != null ? ` · step ${+l.alpha.toPrecision(2)} · cg ${l.cg}` : "";
   $("optstat").textContent = l
     ? `${iter} · gauge ${l.gauge.toFixed(4)} · smooth ${l.smooth.toFixed(4)}` +
-      ` · total ${l.total.toFixed(4)}`
+      ` · total ${l.total.toFixed(4)}${solve}`
     : iter;
 }
 
@@ -944,6 +1296,7 @@ $("b_opt").onclick = async () => {
     await post("api/optimize", {
       iterations: pNum("p_iters"), update_every: pNum("p_every"), lr: pNum("p_lr"),
       weights: { gauge: pNum("p_wg"), inflate: pNum("p_wi"), smooth: pNum("p_ws") },
+      scheme: $("p_scheme").value,
     });
     pollUntilDone();
   } catch (e) {
@@ -1010,12 +1363,16 @@ canvas.addEventListener("wheel", (e) => {
 }, { passive: false });
 
 function resize() {
-  const w = view.clientWidth, h = view.clientHeight;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
 addEventListener("resize", resize);
+// The key's height changes with what is shown; the canvas follows it.
+new ResizeObserver(resize).observe(canvas);
+// Redraw the key at the view's new width.
+new ResizeObserver(() => { if (hat) paint(); }).observe(view);
 
 // ---------- boot ----------
 async function boot() {
@@ -1052,7 +1409,9 @@ async function boot() {
   if (!serverOnline) setChartStatus("server offline — sheet is read-only (run `make small_cubes`)", true);
   $("filebar").querySelectorAll("button, select").forEach((b) => (b.disabled = !serverOnline));
   $("b_export_csv").disabled = $("b_export_json").disabled = false;
-  $("b_savelayout").disabled = !serverOnline;
+  $("b_savelayout").disabled = $("b_saveversion").disabled = !serverOnline;
+  $("b_vrepeat").disabled = !serverOnline;
+  $("e_tex").disabled = !serverOnline;
   refreshFiles(chart.path);
   paramsFromChart(chart, bundle);
   refreshShaping();

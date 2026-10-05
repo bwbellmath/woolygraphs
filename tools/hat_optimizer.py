@@ -16,11 +16,18 @@ stitch positions with Adam against three losses:
                squared difference between a vertex's solid angle and the
                mean over its neighbors', encouraging locally uniform
                curvature.
+
+``scheme`` picks how the weighted sum is minimised: "direct" (Adam on
+the loss, one small explicit step per iteration) or one of the implicit
+graph-Laplacian solvers in implicit_flow.py, where an iteration is one
+sparse solve plus a line search on the same objective.
 """
 
 import json
 
 import torch
+
+from implicit_flow import SCHEMES, SOLVERS
 
 
 def batched_solid_angle(a, b, c):
@@ -36,7 +43,7 @@ def batched_solid_angle(a, b, c):
 
 class HatOptimizer:
     def __init__(self, bundle, lr=1e-3, device="cpu",
-                 w_gauge=1.0, w_inflate=0.02, w_smooth=0.1):
+                 w_gauge=1.0, w_inflate=0.02, w_smooth=0.1, scheme="direct"):
         self.weights = {"gauge": w_gauge, "inflate": w_inflate,
                         "smooth": w_smooth}
         self.pos0 = torch.tensor(bundle["positions"], dtype=torch.float32,
@@ -71,20 +78,31 @@ class HatOptimizer:
             lambda g: g.masked_fill(self.anchor.unsqueeze(1), 0.0))
         self.history = []
         self._opt = torch.optim.Adam([self.pos], lr=lr)
+        self.scheme = "direct"
+        self._solver = None
+        self.set_scheme(scheme)
 
-    def losses(self):
-        p = self.pos
-        out = {}
+    def set_scheme(self, scheme):
+        if scheme not in SCHEMES:
+            raise ValueError(f"unknown scheme {scheme!r}; "
+                             f"one of {', '.join(SCHEMES)}")
+        if scheme != self.scheme:
+            self.scheme = scheme
+            self._solver = None
+            # Adam's moments describe the old trajectory: start afresh.
+            self._opt = torch.optim.Adam([self.pos], lr=self.lr)
 
+    # Each loss is the mean square of a residual vector; the implicit
+    # schemes (implicit_flow.py) linearize the residuals themselves.
+    def gauge_residual(self, p):
+        """Per edge: length / rest - 1."""
         d = p[self.edges[:, 0]] - p[self.edges[:, 1]]
-        length = torch.norm(d, dim=1)
-        out["gauge"] = ((length / self.rest - 1.0) ** 2).mean()
+        return torch.norm(d, dim=1) / self.rest - 1.0
 
-        center = p.detach().mean(dim=0)
-        r = torch.norm(p - center, dim=1)
-        out["inflate"] = (1.0 / (r + 1e-3)).mean()
-
-        omega = self.solid_angles()
+    def smooth_residual(self, p):
+        """Per stitch with a full ring (and a neighbour with one): its
+        solid angle minus the mean of its neighbours'."""
+        omega = self.solid_angles(p)
         nbr = self.neighbors[self.full_ring]  # (M, 4)
         # Mean solid angle over the neighbors that themselves have a
         # defined solid angle.
@@ -93,12 +111,24 @@ class HatOptimizer:
         counts = nbr_valid.sum(dim=1)
         has_nbr = counts > 0
         mean_nbr = nbr_omega.sum(dim=1)[has_nbr] / counts[has_nbr]
-        out["smooth"] = ((omega[self.full_ring][has_nbr] - mean_nbr) ** 2).mean()
+        return omega[self.full_ring][has_nbr] - mean_nbr
+
+    def losses(self, p=None):
+        p = self.pos if p is None else p
+        out = {"gauge": (self.gauge_residual(p) ** 2).mean()}
+        center = p.detach().mean(dim=0)
+        r = torch.norm(p - center, dim=1)
+        out["inflate"] = (1.0 / (r + 1e-3)).mean()
+        out["smooth"] = (self.smooth_residual(p) ** 2).mean()
         return out
 
-    def solid_angles(self):
+    def total(self, p=None):
+        parts = self.losses(p)
+        return sum(self.weights[k] * v for k, v in parts.items()), parts
+
+    def solid_angles(self, p=None):
         """Per-vertex solid angle of the neighbor fan; 0 where undefined."""
-        p = self.pos
+        p = self.pos if p is None else p
         mask = self.full_ring
         v = p[mask]
         left, right, down, up = (p[self.neighbors[mask, k]] for k in range(4))
@@ -111,11 +141,20 @@ class HatOptimizer:
         r_, u_, l_, d_ = unit(right), unit(up), unit(left), unit(down)
         omega_fan = (batched_solid_angle(r_, u_, l_).abs()
                      + batched_solid_angle(r_, l_, d_).abs())
-        omega = torch.zeros(p.shape[0], device=p.device)
-        omega[mask] = omega_fan
-        return omega
+        return torch.zeros(p.shape[0], dtype=p.dtype,
+                           device=p.device).index_put((mask.nonzero()[:, 0],),
+                                                      omega_fan)
 
     def step(self, iterations=30):
+        if self.scheme != "direct":
+            if self._solver is None:
+                self._solver = SOLVERS[self.scheme](self)
+            for _ in range(iterations):
+                total, parts, info = self._solver.step()
+                self.history.append(
+                    {"total": float(total),
+                     **{k: float(v) for k, v in parts.items()}, **info})
+            return self.history[-1]
         for _ in range(iterations):
             self._opt.zero_grad()
             parts = self.losses()
@@ -127,7 +166,9 @@ class HatOptimizer:
                  **{k: float(v) for k, v in parts.items()}})
         return self.history[-1]
 
-    def set_params(self, lr=None, weights=None):
+    def set_params(self, lr=None, weights=None, scheme=None):
+        if scheme:
+            self.set_scheme(scheme)
         if lr is not None:
             self.lr = lr
             for group in self._opt.param_groups:
@@ -140,6 +181,7 @@ class HatOptimizer:
         with torch.no_grad():
             self.pos.copy_(self.pos0)
         self._opt = torch.optim.Adam([self.pos], lr=self.lr)
+        self._solver = None
         self.history = []
 
 
@@ -149,11 +191,12 @@ def main():
     ap.add_argument("layout_json")
     ap.add_argument("--iterations", type=int, default=100)
     ap.add_argument("--lr", type=float, default=2e-3)
+    ap.add_argument("--scheme", choices=list(SCHEMES), default="direct")
     args = ap.parse_args()
 
     with open(args.layout_json) as f:
         bundle = json.load(f)
-    opt = HatOptimizer(bundle, lr=args.lr)
+    opt = HatOptimizer(bundle, lr=args.lr, scheme=args.scheme)
     first = None
     for i in range(0, args.iterations, 10):
         last = opt.step(10)

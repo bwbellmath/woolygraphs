@@ -15,11 +15,15 @@
   }
   #app { display: flex; height: 100%; }
   #view { flex: 1 1 0; position: relative; min-width: 200px; }
-  #canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  /* the 3D view sits above the scale bar (--barh is set from its height) */
+  #canvas { position: absolute; top: 0; left: 0; width: 100%; height: calc(100% - var(--barh, 0px)); display: block; }
+  #scalebar { position: absolute; left: 0; bottom: 0; width: 100%; display: block; }
   #panel {
     position: absolute; top: 12px; left: 12px; width: 240px;
     background: rgba(24, 27, 33, 0.92); border: 1px solid #2c313a;
     border-radius: 10px; padding: 12px 14px; backdrop-filter: blur(6px);
+    max-height: calc(100% - var(--barh, 0px) - 24px); overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: #3a4150 transparent;
   }
   #panel h1 { font-size: 14px; margin-bottom: 2px; color: #fff; }
   #panel .sub { color: #8b93a1; margin-bottom: 10px; }
@@ -39,6 +43,11 @@
   #optbox button { margin-right: 6px; }
   #optstat { margin-top: 7px; color: #8b93a1; min-height: 1.2em; }
   .pgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 8px; margin-bottom: 9px; }
+  .schemesel { color: #8b93a1; display: flex; flex-direction: column; gap: 2px; margin-bottom: 7px; }
+  .schemesel select {
+    font: inherit; color: #fff; background: #14161a; border: 1px solid #2c313a;
+    border-radius: 5px; padding: 3px 6px; width: 100%;
+  }
   .pgrid label { color: #8b93a1; display: flex; flex-direction: column; gap: 2px; }
   .pgrid input, .tool input[type=number], .tool input[type=text] {
     font: inherit; color: #fff; background: #14161a; border: 1px solid #2c313a;
@@ -85,7 +94,16 @@
   #gridwrap:focus-within { box-shadow: inset 0 0 0 1px #2f76c4; }
 
   /* ---- grid cells ---- */
-  .grid { display: grid; gap: 1px; font-size: 8px; line-height: 1; user-select: none; width: max-content; }
+  .grid { display: grid; gap: 1px; font-size: 8px; line-height: 1; user-select: none; width: max-content; position: relative; }
+  /* vertical repeat region: white outline (dark halo so it reads on light cells) */
+  .grid .vrep {
+    position: absolute; inset: -1px; pointer-events: none; z-index: 4;
+    border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.7), inset 0 0 0 1px rgba(0,0,0,0.5);
+  }
+  .grid .vrep span {
+    position: absolute; top: 0; left: 0; padding: 1px 4px; border-bottom-right-radius: 4px;
+    background: #fff; color: #14161a; font: 700 9px/1.1 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
   .grid .hd { color: #6f7785; font-size: 9px; display: grid; place-items: center; height: var(--ch); }
   .grid .rh { color: #6f7785; font-size: 9px; display: grid; place-items: center end; padding-right: 4px; width: 32px; height: var(--ch); }
   .grid .c {
@@ -96,6 +114,8 @@
   .grid .c.f { background: var(--fg); color: var(--fg-text); }
   .grid .c.b { background: var(--bg); color: var(--bg-text); }
   .grid .c.op { font-weight: 700; }
+  .grid .c svg { position: absolute; inset: 1px 2px; width: calc(100% - 4px); height: calc(100% - 2px); pointer-events: none; }
+  .grid .c.mixed span { position: relative; font-size: 0.8em; opacity: 0.85; }
   .grid .c.bad { outline: 2px solid #ff5c49; outline-offset: -2px; }
   .grid .c.guide { outline: 2px solid #ffd23f; outline-offset: -2px; z-index: 1; }
   .grid .c.sel { box-shadow: inset 0 0 0 100px rgba(47, 118, 196, 0.35); }
@@ -180,6 +200,28 @@
     color: #c3c2b7; font-size: 12px; padding: 14px 12px 0;
     border-top: 1px solid #23272e; margin-top: 12px;
   }
+  /* ---- stitch buttons (Chart tab) and Stitches tab ---- */
+  #stitchbar button {
+    display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
+    border: 1px solid transparent;
+  }
+  #stitchbar button.on { background: #ff8a3d; color: #14161a; border-color: #ffd0a8; box-shadow: 0 0 0 2px rgba(255,138,61,0.35); }
+  .stsym {
+    width: 16px; height: 12px; flex: none; display: inline-grid; place-items: center;
+    background: var(--bg); color: var(--bg-text); border-radius: 2px; position: relative;
+  }
+  .stsym svg { position: absolute; inset: 1px 2px; width: calc(100% - 4px); height: calc(100% - 2px); }
+  .grid.brushing .c { cursor: crosshair; }
+  #stitchlist { padding: 10px 12px 20px; overflow: auto; flex: 1; }
+  #stitchlist table { border-collapse: collapse; font-size: 12px; width: 100%; }
+  #stitchlist th {
+    color: #898781; font-weight: 500; text-align: left; padding: 4px 8px;
+    border-bottom: 1px solid #383835; white-space: nowrap;
+  }
+  #stitchlist td { padding: 6px 8px; border-bottom: 1px solid #23272e; vertical-align: top; color: #d7dae0; }
+  #stitchlist td.abbr { font-weight: 700; color: #fff; white-space: nowrap; }
+  #stitchlist td.kind { color: #8b93a1; white-space: nowrap; }
+  #stitchlist .stsym { width: 24px; height: 16px; }
   #shapingform { padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; align-content: start; }
   #shapingform label { color: #8b93a1; display: flex; flex-direction: column; gap: 2px; }
   #shapingform input[type=number], #shapingform select { font: inherit; color: #fff; background: #14161a; border: 1px solid #2c313a; border-radius: 5px; padding: 3px 6px; }
@@ -205,6 +247,7 @@
 <div id="app">
   <div id="view">
     <canvas id="canvas"></canvas>
+    <canvas id="scalebar"></canvas>
     <div id="panel">
       <h1 id="name">loading…</h1>
       <div class="sub" id="sub"></div>
@@ -234,11 +277,19 @@
         </div>
         <div id="spherestat" class="sub" hidden></div>
       </div>
+      <button id="b_saveimg" class="alt" style="margin-top:8px"
+        title="save the 3D view as shown, with the colour key below it, as a PNG">Save image</button>
       <div id="roundbox">
         <div id="roundlabel"><span>knit through round</span><span id="roundval"></span></div>
         <input type="range" id="round" min="1" value="1" step="1">
       </div>
       <div id="optbox">
+        <label class="schemesel" title="how the same objective is minimised; see docs/better_flow.tex. An iteration of an implicit scheme is one sparse graph solve plus a line search, so it needs far fewer iterations">scheme
+          <select id="p_scheme">
+            <option value="direct">direct loss optimization (Adam)</option>
+            <option value="local_global">local/global Laplacian solve</option>
+            <option value="gauss_newton">Gauss&ndash;Newton, Laplacian-damped</option>
+          </select></label>
         <div class="pgrid">
           <label>iterations <input id="p_iters" value="1000"></label>
           <label>update every <input id="p_every" value="500"></label>
@@ -266,6 +317,7 @@
       <button class="on" data-tab="chart">Chart</button>
       <button data-tab="shaping">Shaping</button>
       <button data-tab="edges">Edges</button>
+      <button data-tab="stitches">Stitches</button>
     </div>
     <div class="tab on" id="tab-chart">
       <div class="tool" id="filebar">
@@ -276,6 +328,13 @@
         <button id="b_export_csv" class="alt">Export CSV</button>
         <button id="b_export_json" class="alt">Export JSON</button>
         <button id="b_saveas" class="alt">Save as…</button>
+        <label title="one-page LaTeX chart (letter paper) using the knitting package's chart symbols">LaTeX
+          <select id="texstyle">
+            <option value="color">colours + symbols</option>
+            <option value="symbols">symbols + f / b</option>
+            <option value="words">words</option>
+          </select></label>
+        <button id="b_export_tex" class="alt">Export LaTeX</button>
       </div>
       <div class="tool">
         <label>repeats <input type="number" id="repeats" min="1" max="64" value="4"></label>
@@ -283,6 +342,11 @@
         <label>rnd/in <input type="number" id="c_vg" min="0.5" step="0.1" class="narrow"></label>
         <label title="sheet row where the crown's half-sphere starts; saved with the chart">shaping row
           <input type="number" id="c_row" min="1" step="1" class="narrow"></label>
+        <label title="how many times the outlined rounds are worked in all; select rounds and right-click → Repeat rounds vertically to set the region">v-repeat &times;
+          <input type="number" id="c_vcount" min="1" max="99" step="1" value="1" class="narrow"></label>
+        <button id="b_vrepeat" class="alt" title="make the selected rounds the vertical repeat (also on the sheet's right-click menu)">Repeat selected rounds</button>
+        <button id="b_vclear" class="alt" disabled>Clear repeat</button>
+        <span id="c_vrows" class="sub"></span>
         <label>R (in) <input type="text" id="c_radius" readonly tabindex="-1" class="narrow"></label>
         <label>R from <select id="c_rfrom">
           <option value="layout">layout fit</option>
@@ -291,9 +355,17 @@
         <label>fg <input type="color" id="fgcolor" value="#2f76c4"></label>
         <label>bg <input type="color" id="bgcolor" value="#e9e5da"></label>
         <label>zoom <input type="range" id="zoom" min="0.6" max="3" step="0.1" value="1"></label>
+        <label title="draw decreases and yarn-overs as chart symbols (p &ndash;, k2tog /, ssk \, cdd &and;, co, yo) instead of text">
+          <input type="checkbox" id="c_symbols"> symbols</label>
         <button id="b_undo" class="alt" disabled title="undo (Ctrl/Cmd-Z)">&#8630; Undo</button>
         <button id="b_redo" class="alt" disabled title="redo (Ctrl/Cmd-Shift-Z or Ctrl-Y)">&#8631; Redo</button>
         <button id="b_save" class="alt" disabled>Save CSV</button>
+        <button id="b_saveversion" class="alt" disabled
+          title="save the chart and the current layout as the next version of this name (hat_3 → hat_4, hat → hat_1)">Save new version</button>
+      </div>
+      <div class="tool" id="stitchbar"
+        title="click a stitch, then click or drag over cells to change how they are worked (colour is kept); click the stitch again or press Esc to stop">
+        <span>stitch</span>
       </div>
       <div id="chartstat" title="right-click a cell or header to insert / delete rounds and columns"></div>
       <div id="sheets">
@@ -311,17 +383,23 @@
         <label class="toggle" style="gap:6px"><input type="checkbox" id="e_log" checked> log count</label>
         <label class="toggle" style="gap:6px"><input type="checkbox" id="e_live" checked> follow optimizer</label>
         <button id="e_refresh" class="alt">Refresh</button>
+        <button id="e_saveimg" class="alt" title="the plots, table and key below as one PNG">Save image</button>
+        <button id="e_tex" class="alt"
+          title="a zip with this tab as a LaTeX section: the plots, the 3D view with its key, the stats table and the optimizer's objective with this run's weights">Export LaTeX</button>
       </div>
       <div id="edgeplot"><svg id="edgesvg"></svg></div>
       <div id="edgestats"></div>
       <div class="plothead">Deviation from gauge, all edges &mdash; the heatmap scale</div>
       <div id="devplot"><svg id="devsvg"></svg></div>
-      <div class="note" style="padding:0 12px 18px">
+      <div class="note" id="e_note" style="padding:0 12px 18px">
         Measured on the same edges the optimizer works on: each stitch to its
         right-hand neighbour in the round, and each stitch to the one above it
         in its column. Column edges touching a decrease or a cast-on are counted
         as shaping, since they have no reason to sit at plain column gauge.
       </div>
+    </div>
+    <div class="tab" id="tab-stitches">
+      <div id="stitchlist"></div>
     </div>
     <div class="tab" id="tab-shaping">
       <div id="shapingform">
@@ -344,7 +422,7 @@
         <label>decrease
           <select id="s_dec">
             <option value="k2tog">k2tog (&minus;1)</option>
-            <option value="k3tog">k3tog, centred (&minus;2)</option>
+            <option value="cdd">cdd, centred (&minus;2)</option>
           </select>
         </label>
         <div class="full"><button id="s_auto" class="alt" title="set the shaping row to the round before the chart's first decrease">Shaping row from first decrease</button></div>
@@ -369,9 +447,9 @@
           st/in / slices) with &theta; = &pi;/2 &minus; rows/(rnd/in &middot; R);
           the outlined cells are the two ends of that width, centred in the
           repeat. Rows past the end of the chart are listed greyed so the
-          whole leaf is planned. With k3tog the width drops 2 at a time
+          whole leaf is planned. With cdd the width drops 2 at a time
           (keeping its parity, so the outline narrows one stitch on each
-          side), and the k3togs column is how many to work per slice.
+          side), and the S column is how many to work per slice.
         </div>
       </div>
       <div id="shapingtable"></div>
