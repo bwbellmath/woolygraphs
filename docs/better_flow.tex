@@ -1,0 +1,949 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage[hidelinks]{hyperref}
+
+\title{Better flows for the hat layout:\\incidence, rigidity and
+Laplacian solves}
+\author{}
+\date{5 October 2026}
+
+\begin{document}
+\maketitle
+
+Yes. I think there is a substantially faster formulation here, and the
+object you want to exploit is actually \textbf{the incidence/rigidity
+matrix even more than the adjacency matrix}.
+
+Your current optimization sounds like it is doing explicit time stepping on
+a stiff geometric energy. A deformation at one end of the fabric only
+propagates a little way per iteration, which is exactly the situation where
+gradient descent takes thousands of iterations. Instead, you can linearize
+the local nonlinear geometry and solve the resulting \textbf{graph-wide
+sparse system} at every outer iteration. That lets information propagate
+across the entire knit in one solve.
+
+The resulting method sits very naturally between \textbf{stress
+majorization / projective dynamics}, \textbf{rigidity theory}, and a kind
+of \textbf{prescribed-curvature discrete Ricci flow}. Stress majorization
+is already known to turn nonlinear graph-distance objectives into repeated
+Laplacian solves, and projective dynamics uses essentially the same
+local/global idea for geometric constraints.
+\href{https://www.researchgate.net/publication/30508817_Graph_Drawing_by_Stress_Majorization?utm_source=chatgpt.com}{[ResearchGate]}
+
+\section*{1. Put the knitting graph into incidence-matrix form}
+
+Let
+\[
+G=(V,E),\qquad |V|=n,\quad |E|=m,
+\]
+and let
+\[
+X=
+\begin{bmatrix}
+x_1^\top\\
+\vdots\\
+x_n^\top
+\end{bmatrix}\in\mathbb R^{n\times 3}
+\]
+be your vertex positions.
+
+Choose an arbitrary orientation for the edges and construct the signed
+incidence matrix
+\[
+B\in\mathbb R^{m\times n}.
+\]
+Then
+\[
+Z=BX\in\mathbb R^{m\times3}
+\]
+contains all edge vectors. For edge \(e=(i,j)\),
+\[
+z_e=x_i-x_j,\qquad
+r_e=\|z_e\|,\qquad
+u_e=\frac{z_e}{r_e}.
+\]
+Your weighted Laplacian is
+\[
+L_W=B^\top W B.
+\]
+This representation is almost tailor-made for your problem.
+
+Suppose, approximately, your current energy is
+\[
+E(X)=
+\lambda_\ell E_\ell(X)
++\lambda_\Omega E_\Omega(X)
++\lambda_R E_R(X),
+\]
+where \(E_\ell\) is edge-length distortion, \(E_\Omega\) is your
+solid-angle term, and \(E_R\) is universal repulsion.
+
+\bigskip\hrule
+
+\section*{2. Your log edge-length loss already has a hidden graph Laplacian}
+
+Suppose your edge term is
+\[
+E_\ell(X)
+=
+\frac12\sum_e
+w_e
+\left[
+\log\frac{r_e}{\ell_e}
+\right]^2,
+\]
+where \(\ell_e\) is the desired yarn/stitch edge length.
+
+Define
+\[
+s_e=\log(r_e/\ell_e).
+\]
+Then
+\[
+\frac{\partial E_\ell}{\partial z_e}
+=
+w_e\,s_e\,\frac{z_e}{r_e^2}.
+\]
+Consequently,
+\[
+\boxed{
+\nabla_X E_\ell
+=
+B^\top
+\operatorname{diag}
+\left(
+\frac{w_e s_e}{r_e^2}
+\right)
+BX.
+}
+\]
+So even the exact gradient is already a \textbf{weighted graph-Laplacian
+operation}.
+
+The problem is that doing
+\[
+X^{k+1}=X^k-\eta\nabla E
+\]
+uses that Laplacian explicitly rather than inversely.
+
+That distinction is enormous.
+
+If
+\[
+Lq_i=\lambda_iq_i,
+\]
+ordinary gradient descent changes a mode by roughly
+\[
+c_i^{k+1}
+=
+(1-\eta\lambda_i)c_i^k.
+\]
+Because stability forces \(\eta\) to accommodate \(\lambda_{\max}\), the
+modes near \(\lambda_2\) move extremely slowly. Roughly speaking, the
+convergence rate is controlled by
+\[
+\kappa(L)=\frac{\lambda_{\max}}{\lambda_2}.
+\]
+That looks very much like the ``gradually changes shape over 10k
+iterations'' behavior you're seeing.
+
+Instead, you want to approximately apply
+\[
+L^\dagger
+\]
+to the force.
+
+Then a disturbance at one vertex can affect the whole connected component
+\textbf{in one iteration}.
+
+\bigskip\hrule
+
+\section*{3. Even better: the proper matrix is the rigidity matrix}
+
+For an edge \(e=(i,j)\), define the usual rigidity-matrix row
+\[
+R_e(X)
+=
+[
+0,\ldots,
+z_e^\top,
+\ldots,
+-z_e^\top,
+\ldots,0
+].
+\]
+The rigidity matrix is the Jacobian of squared edge lengths; this is
+precisely the standard object from framework rigidity theory.
+\href{https://link.springer.com/article/10.1007/s00454-021-00275-7?utm_source=chatgpt.com}{[Springer]}
+
+For your log-length residual,
+\[
+s_e=\log(r_e/\ell_e),
+\]
+we have
+\[
+\nabla s_e
+=
+\frac{1}{r_e^2}R_e(X).
+\]
+Therefore
+\[
+J_\ell
+=
+D_{r^{-2}} R(X),
+\]
+and its Gauss--Newton Hessian is
+\[
+\boxed{
+H_\ell^{GN}
+=
+R^\top
+D_{w_er_e^{-4}}
+R.
+}
+\]
+Equivalently, each edge contributes the \(3\times3\) stiffness
+\[
+\frac{w_e}{r_e^2}u_eu_e^\top
+\]
+between its two incident vertices.
+
+This is a \textbf{vector-valued graph Laplacian / framework stiffness
+matrix}.
+
+That is probably the matrix you actually want to solve against.
+
+Instead of
+\[
+X_{k+1}=X_k-\eta g_k,
+\]
+do
+\[
+\boxed{
+(H_k+\mu P)\Delta X=-g_k
+}
+\]
+and
+\[
+X_{k+1}=X_k+\alpha\Delta X.
+\]
+Here \(P\) can be something like
+\[
+P=L_0\otimes I_3
+\]
+rather than ordinary \(I\). This gives you a very natural
+\emph{graph-Sobolev} Levenberg--Marquardt method.
+
+\bigskip\hrule
+
+\section*{4. There is an even cheaper local/global formulation}
+
+For edge preservation, I would seriously test this before implementing a
+full Newton method.
+
+Consider ordinary edge stress
+\[
+E_s(X)
+=
+\frac12
+\sum_e
+w_e(\|z_e\|-\ell_e)^2.
+\]
+Introduce a vector \(p_e\) constrained to lie on the sphere
+\[
+\|p_e\|=\ell_e.
+\]
+Then
+\[
+\boxed{
+(\|z_e\|-\ell_e)^2
+=
+\min_{\|p_e\|=\ell_e}
+\|z_e-p_e\|^2.
+}
+\]
+So the nonlinear problem becomes
+\[
+\min_{X,P}
+\frac12
+\sum_e
+w_e\|(BX)_e-p_e\|^2,
+\qquad
+\|p_e\|=\ell_e.
+\]
+Now alternate.
+
+The \textbf{local step} is trivial:
+\[
+p_e
+=
+\ell_e
+\frac{z_e}{\|z_e\|}.
+\]
+The \textbf{global step} is
+\[
+\min_X
+\frac12\|W^{1/2}(BX-P)\|_F^2,
+\]
+giving
+\[
+\boxed{
+B^\top W B\,X
+=
+B^\top W P.
+}
+\]
+Or simply
+\[
+\boxed{
+L_W X=B^\top WP.
+}
+\]
+That's three sparse Laplacian solves.
+
+And, crucially, if \(W\) is constant, \textbf{you factor \(L_W\) once} and
+reuse it forever.
+
+This is basically the same local/global pattern underlying stress
+majorization, ARAP methods, and projective dynamics. Stress majorization was
+introduced to graph drawing specifically because it provides faster and
+more stable optimization than small local steps; projective dynamics
+similarly exploits independent local projections plus a constant global
+system.
+\href{https://www.researchgate.net/publication/30508817_Graph_Drawing_by_Stress_Majorization?utm_source=chatgpt.com}{[ResearchGate]}
+
+For your knitting application, it is almost suspiciously well matched.
+
+\bigskip\hrule
+
+\section*{5. You don't have to give up the log-length loss}
+
+You can turn the log loss into an iteratively reweighted version of the same
+Laplacian solve.
+
+We want a surrogate
+\[
+\frac12\alpha_e^{(k)}
+(r_e-\ell_e)^2
+\]
+whose derivative agrees with your log loss at the current \(r_e\).
+
+Your log-loss derivative is
+\[
+\frac{d}{dr}
+\frac12 w_e\log^2(r/\ell_e)
+=
+\frac{w_e\log(r/\ell_e)}{r}.
+\]
+The quadratic stress derivative is
+\[
+\alpha_e(r-\ell_e).
+\]
+Thus choose
+\[
+\boxed{
+\alpha_e
+=
+w_e
+\frac{\log(r_e/\ell_e)}
+{r_e(r_e-\ell_e)}.
+}
+\]
+This is positive on both sides of the desired length, and
+\[
+\lim_{r\rightarrow\ell}
+\alpha_e
+=
+\frac{w_e}{\ell_e^2}.
+\]
+Then perform
+\[
+p_e=\ell_eu_e,
+\]
+followed by
+\[
+\boxed{
+L_{\alpha} X^{k+1}
+=
+B^\top D_{\alpha}P.
+}
+\]
+This is a lagged-weight quasi-Newton iteration.
+
+You can use a line search against your \emph{actual} log energy, so you
+retain the original objective while using a much better optimizer.
+
+Near convergence,
+\[
+\alpha_e\simeq\frac{w_e}{\ell_e^2},
+\]
+so the matrix becomes essentially constant and you can reuse a
+factorization or a very good preconditioner.
+
+\bigskip\hrule
+
+\section*{6. Now add the solid-angle term}
+
+Suppose
+\[
+c_v(X)
+=
+\Omega_v(X)-\Omega_v^\star
+\]
+and
+\[
+E_\Omega
+=
+\frac12
+\sum_v q_v c_v^2.
+\]
+The important thing is not even the exact solid-angle formula.
+
+The important fact is:
+\[
+\Omega_v
+=
+\Omega_v\left(x_v,\{x_j:j\in N(v)\}\right).
+\]
+So its Jacobian has nonzeros only in the \textbf{one-ring around \(v\)}.
+
+Let
+\[
+J_\Omega
+=
+\frac{\partial(c_1,\ldots,c_n)}
+{\partial\operatorname{vec}X}.
+\]
+Then linearizing gives
+\[
+c(X+\Delta)
+\simeq
+c(X)+J_\Omega\Delta.
+\]
+Thus
+\[
+H_\Omega^{GN}
+=
+J_\Omega^\top W_\Omega J_\Omega.
+\]
+And here's where your adjacency-matrix-powers intuition becomes
+particularly interesting:
+\[
+\boxed{
+\operatorname{supp}
+(J_\Omega^\top J_\Omega)
+\subseteq
+\operatorname{supp}\big((I+A)^2\big).
+}
+\]
+Why?
+
+Because two vertices interact in the angle Hessian precisely when they
+occur in a common vertex star. They are therefore either neighbors or share
+a neighbor.
+
+So the solid-angle Hessian naturally has an
+\[
+A+A^2
+\]
+kind of sparsity pattern.
+
+I would \textbf{not} add \(A^2\) manually.
+
+Let the geometry derive the coefficients, and exploit the fact that its
+sparsity is exactly the graph's two-hop sparsity.
+
+\bigskip\hrule
+
+\section*{7. One outer iteration can therefore be one sparse solve}
+
+Using the local/global edge surrogate, linearized solid angle, and explicit
+repulsion, define
+\[
+P_e^{(k)}
+=
+\ell_e
+\frac{x_i^k-x_j^k}
+{\|x_i^k-x_j^k\|}.
+\]
+Let
+\[
+K_\ell=L_{\alpha}\otimes I_3.
+\]
+The edge surrogate gradient at \(X^k\) is
+\[
+g_\ell
+=
+K_\ell x^k
+-
+\operatorname{vec}(B^\top D_\alpha P).
+\]
+For the angular term,
+\[
+g_\Omega
+=
+J_\Omega^\top W_\Omega c.
+\]
+Then solve
+\[
+\boxed{
+\left[
+K_\ell
++
+\lambda_\Omega
+J_\Omega^\top W_\Omega J_\Omega
++
+\mu P
+\right]\Delta x
+=
+-
+\left[
+g_\ell+
+\lambda_\Omega g_\Omega+
+\lambda_R g_R
+\right].
+}
+\]
+Then
+\[
+x^{k+1}=x^k+\alpha_{\rm line}\Delta x.
+\]
+That is the formulation I'd start with.
+
+Notice what happened:
+\[
+\text{thousands of scalar-ish gradient steps}
+\]
+became
+\[
+\text{a few nonlinear outer iterations}
++
+\text{sparse graph solves}.
+\]
+For a knit graph, \(m=O(n)\), and the matrices are sparse.
+
+With PCG + algebraic multigrid, each solve can get close to \(O(m)\)
+behavior in practice.
+
+\bigskip\hrule
+
+\section*{8. Treat universal repulsion differently}
+
+Repulsion is the one component that is fundamentally \textbf{not
+graph-local}.
+
+If
+\[
+E_R=\sum_{i<j}\psi(\|x_i-x_j\|),
+\]
+its Hessian is dense.
+
+I would therefore not put its full Hessian into the solve.
+
+Compute
+\[
+g_R=\nabla E_R
+\]
+using a Barnes--Hut octree or FMM-like approximation, and put it on the
+right-hand side.
+
+So your iteration is basically
+\[
+\underbrace{
+(\text{edge stiffness}
++
+\text{angular stiffness})
+}_{\text{implicit}}
+\Delta x
+=
+-
+\underbrace{
+(\text{edge}+\text{angle}+\text{repulsion forces})
+}_{\text{forces}}.
+\]
+This is analogous to a semi-implicit physical simulation: treat the stiff
+local interactions implicitly and the long-range force explicitly.
+
+That alone can permit vastly larger effective step sizes.
+
+\bigskip\hrule
+
+\section*{9. This also suggests a very nice ADMM/projective formulation}
+
+There is another formulation that may fit your implementation particularly
+well.
+
+Introduce independent edge vectors
+\[
+y_e=(BX)_e.
+\]
+Then write
+\[
+\min_{X,Y}
+\quad
+E_\ell(Y)
++
+E_\Omega(Y)
++
+E_R(X)
+\]
+subject to
+\[
+Y=BX.
+\]
+The nonlinear parts then live on \textbf{edges and vertex stars}, while the
+only global consistency condition is linear.
+
+An ADMM step gives something resembling
+\[
+X^{k+1}
+=
+\arg\min_X
+E_R(X)
++
+\frac{\rho}{2}
+\|BX-Y^k+U^k\|^2.
+\]
+Ignoring or linearizing repulsion, this is
+\[
+\boxed{
+\rho L X
+=
+\rho B^\top(Y-U)+F_R.
+}
+\]
+Meanwhile the \(Y\) update decomposes into local geometric problems.
+
+For edge lengths, it's simply sphere projection.
+
+For solid angle, you can make a copy of each half-edge for the star around
+\(v\), and the solid-angle optimization becomes a tiny independent
+optimization per stitch.
+
+That's extremely parallelizable on GPU:
+\[
+\text{edge projections}
+\quad+\quad
+\text{vertex-star projections}
+\quad+\quad
+\text{one global Laplacian solve}.
+\]
+This is very close in spirit to projective dynamics.
+\href{https://users.cs.utah.edu/~ladislav/bouaziz14projective/bouaziz14projective.pdf?utm_source=chatgpt.com}{[Users at Utah]}
+
+\bigskip\hrule
+
+\section*{10. If edge length really is a constraint, don't optimize it as a penalty}
+
+This may be an even bigger improvement.
+
+Your scientific question sounds like:
+\begin{quote}
+Given this graph and these prescribed yarn/stitch lengths, what shape does
+the graph naturally occupy?
+\end{quote}
+If the lengths are genuinely prescribed, then mathematically the clean
+problem is
+\[
+\boxed{
+\min_X
+E_\Omega(X)+\lambda_R E_R(X)
+}
+\]
+subject to
+\[
+\boxed{
+\|x_i-x_j\|=\ell_{ij}
+\qquad\forall(i,j)\in E.
+}
+\]
+Then you're optimizing \textbf{on the space of realizations of the
+bar-and-joint framework}.
+
+Define
+\[
+c_e(X)
+=
+\frac12
+\left(
+\|x_i-x_j\|^2-\ell_e^2
+\right).
+\]
+Its Jacobian is exactly the rigidity matrix
+\[
+R(X).
+\]
+An SQP iteration solves a KKT system of the form
+\[
+\boxed{
+\begin{bmatrix}
+H & R^\top\\
+R & 0
+\end{bmatrix}
+\begin{bmatrix}
+\Delta x\\
+\lambda
+\end{bmatrix}
+=
+-
+\begin{bmatrix}
+g\\
+c
+\end{bmatrix}.
+}
+\]
+Now your optimizer moves principally along \textbf{flexes that preserve
+yarn length}, rather than constantly stretching edges and then paying a
+penalty to shrink them back.
+
+That could be an enormous conditioning improvement if your current
+edge-loss coefficient is large.
+
+The nullspace
+\[
+R(X)\Delta x=0
+\]
+is literally the space of infinitesimal length-preserving motions of the
+knit.
+
+That is a very attractive definition of the ``available deformation
+space'' of knitted fabric.
+
+\bigskip\hrule
+
+\section*{11. The Ricci-flow connection is real---but there is an important distinction}
+
+Standard Ricci flow changes a \textbf{metric}, not directly an embedding.
+
+For a triangulated piecewise-flat surface, discrete Gaussian curvature is
+\[
+K_v
+=
+2\pi-\sum_{f\ni v}\theta_{vf}.
+\]
+Discrete conformal Ricci flow then introduces some metric/conformal
+parameter \(u_v\) and evolves it according to something like
+\[
+\dot u_v=K_v^\star-K_v.
+\]
+Importantly, the prescribed curvature \(K^\star\) does \textbf{not} need to
+be zero or ``average flatness.'' Discrete Ricci-flow methods explicitly
+handle user-prescribed curvature.
+\href{https://sites.math.rutgers.edu/~fluo/mpapers/combinatorial%20Ricci%20flow%20in%20dimension%202.pdf?utm_source=chatgpt.com}{[Department of Mathematics]}
+
+And there is a beautiful connection to your proposed acceleration:
+\[
+K(u+\Delta u)
+\simeq
+K(u)+J_K\Delta u.
+\]
+Instead of explicit Ricci flow
+\[
+u^{k+1}=u^k+\eta(K^\star-K),
+\]
+take the Newton step
+\[
+\boxed{
+J_K\Delta u
+=
+K^\star-K.
+}
+\]
+In discrete conformal geometry, \(J_K\) is Laplacian-like; the discrete
+Ricci energy has a variational formulation and a Laplacian-like Hessian.
+\href{https://pubmed.ncbi.nlm.nih.gov/18599915/?utm_source=chatgpt.com}{[PubMed]}
+
+So one interpretation of what we're doing is:
+\begin{quote}
+\textbf{replace explicit curvature flow by an implicit/Newton curvature
+solve.}
+\end{quote}
+That is exactly the philosophical transition that would turn your 10,000
+gradual iterations into tens of large, globally coordinated changes.
+
+\bigskip\hrule
+
+\subsection*{But your solid angle is not automatically Ricci curvature}
+
+This is worth being precise about.
+
+If your solid angle \(\Omega_v\) comes from the 3-D directions of the
+incident graph edges, then it is an \textbf{extrinsic quantity of the
+embedding}.
+
+Classical Gaussian/Ricci curvature is intrinsic.
+
+So for a bare graph,
+\[
+\Omega_v
+\]
+is not literally discrete Ricci curvature.
+
+I'd call
+\[
+C_v=\Omega_v-\Omega_v^\star
+\]
+a \textbf{vertex curvature-like residual}.
+
+Then your flow
+\[
+\dot X
+=
+-
+P^{-1}
+J_\Omega^\top C
+\]
+is more accurately a \textbf{preconditioned curvature flow} or
+\textbf{Sobolev curvature flow}.
+
+But if your knitting graph has a natural 2-complex---e.g.\ the yarn/stitch
+topology identifies actual fabric cells---things get much closer.
+
+Triangulate those cells, calculate
+\[
+K_v=2\pi-\sum_f\theta_{vf},
+\]
+and prescribe a topology/stitch-dependent target
+\[
+K_v^\star.
+\]
+Then you really do have a discrete prescribed-curvature problem.
+
+And rather than forcing everything toward
+\[
+K_v^\star=0,
+\]
+you could have
+\[
+K_v^\star
+=
+K(\text{knit}),
+\quad
+K(\text{purl}),
+\quad
+K(\text{increase}),
+\quad
+K(\text{decrease}),
+\ldots
+\]
+or derive \(K_v^\star\) from your solid-angle model.
+
+That would be a very interesting knitting-specific analogue of discrete
+Ricci flow.
+
+\bigskip\hrule
+
+\section*{12. Where \(A^k\) and Laplacian eigenvectors actually help}
+
+I would use the graph hierarchy in four specific ways rather than
+explicitly putting arbitrary powers of \(A\) into the objective:
+\begin{enumerate}
+  \item \textbf{\(B\)} for all edge quantities.
+  \item \textbf{\(L=B^\top WB\)} as your global propagation/preconditioning
+        operator.
+  \item \textbf{\(A^2\)} implicitly through the solid-angle Hessian, since
+        vertex stars create two-hop coupling.
+  \item \textbf{multiscale Laplacians} for the long-wavelength shape modes.
+\end{enumerate}
+That last one may be especially important.
+
+You can build a coarse knitting graph
+\[
+G_0\leftarrow G_1\leftarrow\dots\leftarrow G
+\]
+by aggregating neighboring stitches.
+
+Solve the shape problem on the coarse graph first, prolongate to the next
+level, optimize a few times, and repeat.
+
+That handles exactly the modes gradient descent is worst at:
+long-wavelength bending.
+
+An algebraic-multigrid hierarchy for \(L\) effectively does this
+automatically.
+
+You could also initialize from the lowest nontrivial eigenvectors
+\[
+Lq_i=\lambda_iq_i,
+\]
+but I would regard spectral embedding as an initializer, not the final
+geometry. It likes smoothness and graph distance, which isn't quite the
+physical objective you want.
+
+\bigskip\hrule
+
+\section*{13. The solver I would try first}
+
+If I were modifying your current code, I'd implement this sequence:
+\begin{enumerate}
+  \item Build \(B\), \(L_0\), and an AMG or sparse-Cholesky preconditioner
+        once.
+  \item Replace the edge-length gradient by the local projection
+        \[
+        p_e=\ell_eu_e.
+        \]
+  \item For your log loss, calculate the lagged weights
+        \[
+        \alpha_e=
+        w_e
+        \frac{\log(r_e/\ell_e)}
+        {r_e(r_e-\ell_e)}.
+        \]
+  \item Compute the solid-angle residual \(c\) and its sparse Jacobian
+        \(J_\Omega\) with autodiff.
+  \item Calculate repulsion with Barnes--Hut.
+  \item Solve
+        \[
+        \left[
+        L_\alpha\otimes I_3+
+        \lambda_\Omega J_\Omega^\top J_\Omega+
+        \mu L_0\otimes I_3
+        \right]\Delta x=-g.
+        \]
+  \item Line-search the \textbf{original} energy and repeat.
+\end{enumerate}
+That gives you almost exactly the same objective you have now, but the
+iteration has changed from a local explicit flow into a global implicit
+geometric solve.
+
+I would expect the qualitative difference to be dramatic: not ``the fabric
+gradually crawls into shape,'' but rather ``each iteration makes a coherent
+macroscopic deformation.'' I wouldn't promise a particular iteration count
+without seeing the graph, but this is the sort of change where
+\textbf{10--100 nonlinear iterations instead of \(10^4\)} is a realistic
+target.
+
+And there is a deeper conceptual formulation here that I think could be
+publishable in the context of your knitting-layout work:
+\[
+\boxed{
+\text{knitting shape}
+=
+\text{prescribed metric}
++
+\text{prescribed vertex curvature}
++
+\text{self-avoidance}.
+}
+\]
+Edge lengths specify the discrete metric; your solid-angle term specifies a
+preferred local curvature/extrinsic geometry; repulsion picks a
+non-self-intersecting realization. The rigidity/Laplacian machinery then
+gives the numerical method.
+
+The particularly nice mathematical bridge to Ricci flow is that both
+problems become \textbf{``compute local curvature residuals, then invert a
+Laplacian-like Jacobian to make a global metric/shape correction''}, rather
+than taking thousands of explicit curvature-force steps.
+\href{https://pubmed.ncbi.nlm.nih.gov/18599915/?utm_source=chatgpt.com}{[PubMed]}
+
+If you give me the exact formulas you're currently using for the
+\textbf{solid-angle loss, repulsion, and edge logloss}, I can go one level
+further and derive the actual \(J_\Omega\), block Hessian, and a concrete
+sparse solver iteration for \emph{your exact loss}, including what can be
+pre-factored and what needs to be recomputed each iteration.
+
+\end{document}
